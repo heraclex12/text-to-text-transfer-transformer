@@ -19,7 +19,7 @@ import collections
 import functools
 import math
 import re
-from typing import Callable, Mapping, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, Union
 import uuid
 
 from absl import logging
@@ -1504,13 +1504,18 @@ def wnli_simple(x, label='wsc:'):
   }
 
 
-def rank_classification(ds: tf.data.Dataset,
-                        inputs_fn: Callable[[FeatureType], tf.Tensor],
-                        targets_fn: Callable[[FeatureType], tf.Tensor],
-                        is_correct_fn: Callable[[FeatureType], tf.Tensor],
-                        weight_fn: Optional[Callable[[FeatureType],
-                                                     tf.Tensor]] = None,
-                        mode: str = 'eval') -> tf.data.Dataset:
+def rank_classification(
+    ds: tf.data.Dataset,
+    inputs_fn: Callable[[FeatureType], tf.Tensor],
+    targets_fn: Callable[[FeatureType], tf.Tensor],
+    is_correct_fn: Callable[[FeatureType], tf.Tensor],
+    weight_fn: Optional[Callable[[FeatureType], tf.Tensor]] = None,
+    mode: str = 'eval',
+    make_example_function: Optional[Callable[[
+        tf.Tensor, Dict[str, Any], Callable[[FeatureType], tf.Tensor], Callable[
+            [FeatureType], tf.Tensor], Callable[[FeatureType], tf.Tensor]
+    ], Dict[str, Any]]] = None
+) -> tf.data.Dataset:
   """Prepare dataset for rank classification scoring.
 
   Intended to be used with `rank_classification` postprocessor and metric.
@@ -1579,6 +1584,11 @@ def rank_classification(ds: tf.data.Dataset,
       every possible class value, sequentially. 'fewshot_eval' produces an
       example for every possible class value, batched together for each input
       example.
+    make_example_function: a callable that returns a dict, with one key per
+    feature, and the inputs value being replicated as many times as the number
+    of class labels. See default make_examples method, and the description above
+    for more clarity. It takes as arguments an idx, example dictionary, a
+    callable inputs_fn, targets_fn and is_correct_fn
 
   Returns:
     A tf.data.Dataset containing 'idx', inputs', 'targets', and 'is_correct'.
@@ -1615,8 +1625,17 @@ def rank_classification(ds: tf.data.Dataset,
 
     return output
 
+  if not make_example_function:
+    make_example_function = make_examples
+  else:
+    make_example_function = functools.partial(
+        make_example_function,
+        inputs_fn=inputs_fn,
+        targets_fn=targets_fn,
+        is_correct_fn=is_correct_fn)
+
   ds = ds.enumerate()
-  ds = ds.map(make_examples, num_parallel_calls=AUTOTUNE)
+  ds = ds.map(make_example_function, num_parallel_calls=AUTOTUNE)
   if mode != 'fewshot_eval':
     ds = ds.unbatch()
   if mode == 'train':
