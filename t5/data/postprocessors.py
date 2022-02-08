@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,10 +38,8 @@ def lower_text(string, **unused_kwargs):
   return string.lower()
 
 
-def string_label_to_class_id(string_label,
-                             label_classes,
-                             default=-1,
-                             **unused_kwargs):
+def string_label_to_class_id(
+    string_label, label_classes, default=-1, **unused_kwargs):
   """Returns index of string_label in label_classes or default if not found."""
   if string_label in label_classes:
     return label_classes.index(string_label)
@@ -52,9 +50,8 @@ def string_label_to_class_id(string_label,
 def multirc(string_label, example=None, is_target=False):
   """Returns dict containing the class with the question index for grouping."""
   res = {
-      "value":
-          string_label_to_class_id(
-              string_label, example=example, label_classes=("False", "True"))
+      "value": string_label_to_class_id(
+          string_label, example=example, label_classes=("False", "True"))
   }
   # Add the group, if present, since the model outputs will not have it.
   if is_target:
@@ -99,7 +96,7 @@ def wsc_simple(prediction, example=None, is_target=False):
 
   # We aren't using the label but rather using the extracted referent so that we
   # can see if the prediction is equivalent to the referent.
-  referent = clean(example["targets_pretokenized"])
+  referent = clean(example["targets_plaintext"])
   prediction = clean(prediction)
 
   if ("'" in prediction) != ("'" in referent):
@@ -118,12 +115,10 @@ def wsc_simple(prediction, example=None, is_target=False):
   return int(predicted_referent)
 
 
-def rank_classification(score, example=None, is_target=False):
+def rank_classification(
+    score, example=None, is_target=False, label_key="label"):
   """A postprocessor for the `rank_classification` preprocessor and metric."""
   if is_target:
-    return (
-        tuple(example["idx"]), example["is_correct"],
-        example.get("weight", 1.0), len(example["targets"])
-    )
+    return example[label_key]
   else:
     return score

@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +33,6 @@ import os
 from absl import app
 from absl import flags
 import t5.data
-import t5.data.tasks
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
@@ -66,12 +65,8 @@ FILE_NAME_MAP = {
     "qnli": "QNLI",
     "wnli": "WNLI",
     "wsc": "WSC",
-    "axb": "AX-b",
-    "axg": "AX-g",
 }
-USES_TEXT = [
-    "cb", "rte", "mnli_matched", "mnli_mismatched", "qnli", "axb", "axg"
-]
+USES_TEXT = ["cb", "rte", "mnli_matched", "mnli_mismatched", "qnli"]
 # Placeholder for seq len - required by get_dataset but not used
 _FAKE_LEN = {"inputs": 512, "targets": 512}
 

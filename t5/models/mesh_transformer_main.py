@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import gin
 from mesh_tensorflow.transformer import utils
 import pkg_resources
 import t5
-from t5.models import mesh_transformer
 from t5.models import mtf_model
 import tensorflow.compat.v1 as tf
 
@@ -54,7 +53,7 @@ flags.DEFINE_string(
     "will attempt to automatically detect the GCE project from metadata.")
 
 flags.DEFINE_multi_string(
-    "module_import", "t5.data.mixtures",
+    "module_import", None,
     "Modules to import. Use this, for example, to add new `Task`s to the "
     "global `TaskRegistry`.")
 
@@ -71,15 +70,6 @@ flags.DEFINE_list(
 
 flags.DEFINE_boolean("use_model_api", False,
                      "Use Model API instead of utils.run.")
-
-flags.DEFINE_list("additional_deprecated_gin_references", [],
-                  "Deprecated gin configs to be ignored.")
-
-flags.DEFINE_boolean("skip_all_gin_unknowns", False,
-                     "Don't throw any errors if any gin config params are "
-                     "not found. Overrides the specific list of names in "
-                     "--additional_deprecated_gin_references and "
-                     "DEPRECATED_GIN_REFERENCES.")
 
 # Note: All the args from here on are only used when use_model_api is set
 flags.DEFINE_enum(
@@ -134,14 +124,9 @@ flags.DEFINE_string("output_file", "", "Path to output file to save decodes.")
 flags.DEFINE_string(
     "export_dir", "",
     "Directory to export SavedModels to. Will use `model_dir` if unspecified.")
-
-
-# Decoding strategy args, used in export and predict modes.
-flags.DEFINE_integer("beam_size", 1, "Beam size for predict or export mode.")
-flags.DEFINE_float("temperature", 0.0,
-                   "Sampling emperature for predict or export mode.")
-flags.DEFINE_integer("keep_top_k", -1,
-                     "Top-k value for predict or export mode.")
+flags.DEFINE_integer("export_beam_size", 1, "Beam size in export mode.")
+flags.DEFINE_float("export_temperature", 0.0,
+                   "Sampling emperature in export mode.")
 
 FLAGS = flags.FLAGS
 
@@ -153,6 +138,7 @@ def main(_):
 
   if FLAGS.t5_tfds_data_dir:
     t5.data.set_tfds_data_dir_override(FLAGS.t5_tfds_data_dir)
+  t5.data.add_global_cache_dirs(FLAGS.additional_task_cache_dirs)
 
   # Add search path for gin files stored in package.
   gin.add_config_file_search_path(
@@ -167,22 +153,11 @@ def main(_):
       command_filename = os.path.join(command_dir, "command.{}".format(suffix))
     with tf.io.gfile.GFile(command_filename, "w") as f:
       f.write(" ".join(sys.argv))
-  except (tf.errors.PermissionDeniedError, tf.errors.InvalidArgumentError):
+  except tf.errors.PermissionDeniedError:
     logging.info(
         "No write access to model directory. Skipping command logging.")
 
-  utils.parse_gin_defaults_and_flags(
-      skip_unknown=(FLAGS.skip_all_gin_unknowns or (
-          mesh_transformer.DEPRECATED_GIN_REFERENCES +
-          tuple(FLAGS.additional_deprecated_gin_references))),
-      finalize_config=False)
-  # We must overide this binding explicitly since it is set to a deprecated
-  # function or class in many existing configs.
-  gin.bind_parameter("run.vocabulary", mesh_transformer.get_vocabulary())
-  gin.finalize()
-
-  # Set cache dir after loading gin to avoid unintentionally overriding it.
-  t5.data.add_global_cache_dirs(FLAGS.additional_task_cache_dirs)
+  utils.parse_gin_defaults_and_flags()
 
   if FLAGS.use_model_api:
     model = mtf_model.MtfModel(
@@ -239,10 +214,7 @@ def main(_):
       model.predict(
           checkpoint_steps=checkpoint_steps,
           input_file=FLAGS.input_file,
-          output_file=FLAGS.output_file,
-          beam_size=FLAGS.beam_size,
-          temperature=FLAGS.temperature,
-          keep_top_k=FLAGS.keep_top_k,)
+          output_file=FLAGS.output_file)
     elif FLAGS.mode == "score":
       model.score(
           FLAGS.input_file,
@@ -262,10 +234,9 @@ def main(_):
       model.export(
           export_dir=FLAGS.export_dir,
           checkpoint_step=checkpoint_steps,
-          beam_size=FLAGS.beam_size,
-          temperature=FLAGS.temperature,
-          keep_top_k=FLAGS.keep_top_k,
-          eval_with_score=(FLAGS.mode == "export_score"))
+          beam_size=FLAGS.export_beam_size,
+          temperature=FLAGS.export_temperature,
+          score_mode=(FLAGS.mode == "export_score"))
     else:
       raise ValueError("--mode flag must be set when using Model API.")
   else:

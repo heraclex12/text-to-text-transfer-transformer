@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,18 +16,15 @@
 
 This module contains different mixtures for training T5 models.
 """
-import seqio
-import t5.data
+from t5.data.dataset_providers import MixtureRegistry
 from t5.data.glue_utils import get_glue_weight_mapping
 from t5.data.glue_utils import get_super_glue_weight_mapping
-from t5.data.glue_utils import get_super_glue_weight_mapping_sentinel
 import t5.data.tasks  # pylint: disable=unused-import
-
-MixtureRegistry = seqio.MixtureRegistry
+from t5.data.utils import rate_num_examples
+from t5.data.utils import rate_unsupervised
 
 _GLUE_WEIGHT_MAPPING = get_glue_weight_mapping()
 _SUPER_GLUE_WEIGHT_MAPPING = get_super_glue_weight_mapping()
-_SUPER_GLUE_WEIGHT_MAPPING_SENTINEL = get_super_glue_weight_mapping_sentinel()
 
 _glue_tasks = list(_GLUE_WEIGHT_MAPPING.keys())
 _glue_tasks_with_weight = list(_GLUE_WEIGHT_MAPPING.items())
@@ -40,8 +37,6 @@ _wsc_dpr_tasks = [
 
 _super_glue_tasks = list(_SUPER_GLUE_WEIGHT_MAPPING.keys())
 _super_glue_tasks_with_weight = list(_SUPER_GLUE_WEIGHT_MAPPING.items())
-_super_glue_tasks_with_weight_sentinel = list(
-    _SUPER_GLUE_WEIGHT_MAPPING_SENTINEL.items())
 
 _supervised_tasks = (
     _glue_tasks + _super_glue_tasks +
@@ -77,11 +72,6 @@ MixtureRegistry.add(
     _super_glue_tasks_with_weight)
 
 
-MixtureRegistry.add(
-    "super_glue_v102_proportional_sentinel",
-    _super_glue_tasks_with_weight_sentinel)
-
-
 # mnli and its associated dev sets: mnli_matched and mnli_mismatched
 MixtureRegistry.add(
     "glue_mnli_and_dev_v002",
@@ -104,10 +94,10 @@ MixtureRegistry.add(
 #  - we seem to overtrain on super_glue_record - don't know why
 MixtureRegistry.add(
     "en_mix",
-    [("c4_v020_unsupervised", t5.data.rate_unsupervised)] +
+    [("c4_v020_unsupervised", rate_unsupervised)] +
     _glue_tasks + _super_glue_tasks +
     ["squad_v010_allanswers"],
-    default_rate=t5.data.rate_num_examples)
+    default_rate=rate_num_examples)
 
 MixtureRegistry.add(
     "all_equal",
@@ -123,7 +113,7 @@ def _dedupe(name):
   elif name in _SUPER_GLUE_WEIGHT_MAPPING:
     rate = _SUPER_GLUE_WEIGHT_MAPPING[name]
   if rate is None:
-    return t5.data.rate_num_examples
+    return rate_num_examples
   if "glue" in name and "rte" in name:
     rate *= 0.5
   return rate
@@ -139,10 +129,10 @@ MixtureRegistry.add(
 # rate for the unsupervised task which is different from the global value for
 # rate_num_examples.maximum
 # If you use this task, you should set a maximum rate value via gin e.g.
-# --gin_param="t5.data.rate_num_examples.maximum = 1e6"
+# --gin_param="dataset_utils.rate_num_examples.maximum = 1e6"
 MixtureRegistry.add(
     "all_mix",
-    ([("c4_v020_unsupervised", t5.data.rate_unsupervised)] +
+    ([("c4_v020_unsupervised", rate_unsupervised)] +
      [(t, _dedupe(t)) for t in _supervised_tasks]),
 )
 
@@ -155,7 +145,7 @@ def assign_weight_or_rate_num_examples(name):
   elif name in _SUPER_GLUE_WEIGHT_MAPPING:
     return _SUPER_GLUE_WEIGHT_MAPPING[name]
   else:
-    return t5.data.rate_num_examples
+    return rate_num_examples
 
 
 for task_name in _finetune_tasks:
@@ -193,7 +183,7 @@ MixtureRegistry.add(
 MixtureRegistry.add(
     "large_supervised_proportional",
     _large_supervised_tasks,
-    default_rate=t5.data.rate_num_examples)
+    default_rate=rate_num_examples)
 
 MixtureRegistry.add(
     "large_translation_equal",

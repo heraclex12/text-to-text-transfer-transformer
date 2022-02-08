@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,8 +18,10 @@
 import abc
 
 
-class T5Model(metaclass=abc.ABCMeta):
+class T5Model(object):
   """Abstract Base class for T5 Model API."""
+
+  __metaclass__ = abc.ABCMeta
 
   @abc.abstractmethod
   def train(self, mixture_or_task_name, steps):

@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,13 +21,9 @@ Functions should assume all text inputs are unicode strings.
 """
 
 import collections
-import itertools
-import re
-import string
-from typing import Dict, Mapping, Optional, Sequence, Tuple, Union
 
+import re
 from absl import logging
-import editdistance
 import numpy as np
 import sacrebleu
 import scipy.stats
@@ -213,20 +209,17 @@ def spearman_corrcoef(targets, predictions):
               100 * scipy.stats.spearmanr(targets, predictions)[0]}
 
 
-def mean_multiclass_f1(num_classes, **metric_fn_kwargs):
+def mean_multiclass_f1(num_classes):
   """Computes the unweighted average of the F1 per class."""
   return sklearn_metrics_wrapper(
       "fbeta_score",
       metric_dict_str="mean_%dclass_f1" % num_classes,
       metric_post_process_fn=lambda x: 100 * x,
-      beta=1,
-      labels=range(num_classes),
-      average="macro",
-      **metric_fn_kwargs)
+      beta=1, labels=range(num_classes), average="macro")
 
 
-def all_match(targets, predictions):
-  """Computes whether all targets match all predictions exactly."""
+def exact_match(targets, predictions):
+  """Computes whether the targets match predictions exactly."""
   return {"exact_match": 100 * float(np.array_equal(targets, predictions))}
 
 
@@ -247,10 +240,7 @@ def f1_score_with_invalid(targets, predictions):
   return {"f1": 100 * sklearn.metrics.f1_score(targets, predictions)}
 
 
-def mean_group_metric(metric_fn,
-                      group_key="group",
-                      value_key="value",
-                      return_subgroup_scores=False):
+def mean_group_metric(metric_fn, group_key="group", value_key="value"):
   """Returns a metric that averages `metric_fn` on sub-groups of results.
 
   The sub-groups are defined by aggregating results (targets and predictions)
@@ -265,7 +255,6 @@ def mean_group_metric(metric_fn,
     metric_fn: function, the metric to compute on the subgroups.
     group_key: string, the key for the grouping value in the target dictionary.
     value_key: string, the key for the value in the dictionaries.
-    return_subgroup_scores: If true, include the scores for each sub-group.
   """
   def my_metric(targets, predictions):
     """Computes mean of `metric_fn` over subgroups of results."""
@@ -275,11 +264,9 @@ def mean_group_metric(metric_fn,
       grouped_values[g][0].append(targ[value_key])
       grouped_values[g][1].append(pred[value_key])
     group_scores = collections.defaultdict(list)
-    for group, (targets, predictions) in grouped_values.items():
+    for (targets, predictions) in grouped_values.values():
       for metric, score in metric_fn(targets, predictions).items():
         group_scores[metric].append(score)
-        if return_subgroup_scores:
-          group_scores["%s-%s" % (group, metric)].append(score)
     return {metric: np.mean(scores) for metric, scores in group_scores.items()}
   return my_metric
 
@@ -305,7 +292,7 @@ def multirc_f1_over_all_answers(targets, predictions):
 
 def auc(targets, predictions, targets_threshold=None):
   """Compute Area Under the ROC and PR curves.
-
+  
   ROC - Receiver Operating Characteristic
   PR  - Precision and Recall
 
@@ -328,26 +315,6 @@ def auc(targets, predictions, targets_threshold=None):
       "auc-roc": sklearn.metrics.roc_auc_score(targets, predictions),
       "auc-pr": sklearn.metrics.average_precision_score(targets, predictions),
   }
-
-
-def score_auc(targets, scores, targets_threshold=None):
-  """Compute Area Under the ROC and PR curves.
-
-  ROC - Receiver Operating Characteristic
-  PR  - Precision and Recall
-
-  Args:
-    targets: np.ndarray of targets, either 0 or 1, or continuous values.
-    scores: np.ndarray of scores, any value.
-    targets_threshold: float, if target values are continuous values, this
-      threshold binarizes them.
-
-  Returns:
-    A dictionary with AUC-ROC and AUC-PR scores.
-  """
-
-  return auc(
-      targets=targets, predictions=scores, targets_threshold=targets_threshold)
 
 
 def sklearn_metrics_wrapper(metric_str,
@@ -378,12 +345,7 @@ def sklearn_metrics_wrapper(metric_str,
   return fn
 
 
-def rank_classification(
-    targets: Sequence[Tuple[Sequence[int], bool, float, int]],
-    scores: Sequence[float],
-    num_classes: Optional[int] = None,
-    normalize_by_target_length: bool = False,
-) -> Dict[str, Union[float, int]]:
+def rank_classification(targets, predictions, num_classes=2):
   """Computes standard metrics classification based on log likelihood ranking.
 
   This metric is intended to be used along with the `rank_classification`
@@ -391,91 +353,23 @@ def rank_classification(
   for every possible label, and the label with the best score is selected as the
   prediction.
 
-  In the case of multiple labels, a prediction matching any will be considered
-  correct.
-
-  For problems with two labels, AUC-pr and AUC-roc retrieval metrics will be
-  reported for the positive class, which is assumed to have an 'idx' of 1. If
-  more labels are present, only accuracy and F-1 will be reported.
-
   Args:
-    targets: list of tuples, the 'idx', 'is_correct', 'weight' fields, and
-      length of target tokens from ground truth examples.
-    scores: list of float, a flat list of log likelihood scores for each
+    targets: list of int, the true label value for eached aligned "prediction"
+      score.
+    predictions: list of float, a flat list of log likelihood scores for each
       possible label for each example.
-    num_classes: int or None, the number of possible classes for the label or
-      None if the number of classes vary.
-    normalize_by_target_length: bool, if True the scores are normalized by the
-      target token lengths.
+    num_classes: int, the number of possible classes for the label.
   Returns:
     Accuracy, f1, and AUC scores.
-
-  Raises:
-    ValueError: if `targets` is not a sequence of 3-tuples.
   """
-  assert len(targets) == len(scores)
-  if len(targets[0]) != 4:
-    raise ValueError(
-        f"`targets` should contain 4 elements but has {len(targets[0])}.")
+  assert len(targets) == len(predictions)
+  assert len(targets) % num_classes == 0
 
-  normalized_scores = []
-  if normalize_by_target_length:
-    for target, score in zip(targets, scores):
-      _, _, _, target_length = target
-      score = score / target_length
-      normalized_scores.append(score)
+  labels = np.array(targets[::num_classes])
+  labels_onehot = np.eye(num_classes)[labels]
 
-    scores = normalized_scores
-
-  idx_0 = targets[0][0]
-  if not hasattr(idx_0, "__len__") or len(idx_0) != 2:
-    raise ValueError(
-        "The first element of `targets` ('idx') should be 2-dimensional. "
-        f"Got {idx_0}.")
-
-  # Sort by 'idx' since the function relies on this assumption.
-  # ((idx, is_correct, weight), score)
-  get_idx = lambda x: x[0][0]
-  targets, scores = zip(*sorted(zip(targets, scores), key=get_idx))
-
-  if not num_classes:
-    # Assuming variable classes. Can only compute accuracy.
-    num_correct = 0
-    total = 0
-
-    # (((input idx, output idx), is_correct, weight), score)
-    get_grp = lambda x: x[0][0][0]
-
-    for _, grp in itertools.groupby(zip(targets, scores), get_grp):
-      exs, log_likelihoods = zip(*grp)
-      prediction = np.argmax(log_likelihoods)
-      weights = exs[prediction][2]
-      num_correct += exs[prediction][1] * weights
-      total += weights
-    return {"accuracy": 100 * num_correct / total}
-
-  assert len(targets) % num_classes == 0, f"{len(targets)} % {num_classes} != 0"
-
-  labels_indicator = np.array([is_correct for _, is_correct, _, _ in targets
-                              ]).reshape((-1, num_classes))
-  weights = np.array([weight for _, _, weight, _ in targets]).reshape(
-      (-1, num_classes))[:, 0]
-  log_likelihoods = np.array(scores, np.float32).reshape((-1, num_classes))
+  log_likelihoods = np.array(predictions, np.float32).reshape((-1, num_classes))
   predictions = log_likelihoods.argmax(-1)
-
-  if np.any(labels_indicator.sum(axis=-1) > 1):
-    # multiple-answer case
-    logging.info(
-        "Multiple labels detected. Predictions matching any label will be "
-        "considered correct.")
-    num_examples = len(labels_indicator)
-    return {
-        "accuracy": (100 * np.average(
-            labels_indicator[np.arange(num_examples), predictions],
-            weights=weights))
-    }
-
-  predictions_indicator = np.eye(num_classes)[predictions]
 
   def exp_normalize(x):
     b = x.max(-1)[:, np.newaxis]
@@ -483,119 +377,16 @@ def rank_classification(
     return y / y.sum(-1)[:, np.newaxis]
   probs = exp_normalize(log_likelihoods)
 
-  metrics = {
-      "accuracy":
-          100 * sklearn.metrics.accuracy_score(
-              labels_indicator, predictions_indicator, sample_weight=weights),
-  }
-
   if num_classes > 2:
-    metrics.update(
-        mean_multiclass_f1(num_classes,
-                           sample_weight=weights)(labels_indicator,
-                                                  predictions_indicator))
-    logging.warning("AUC-pr and AUC-roc are not supported when num_classes > 2")
+    metrics = mean_multiclass_f1(num_classes)(labels, predictions)
   else:
-    metrics.update({
-        "f1":
-            100 * sklearn.metrics.f1_score(
-                labels_indicator.argmax(-1), predictions, sample_weight=weights)
-    })
-    labels_indicator = labels_indicator[:, 1]
-    probs = probs[:, 1]
-
-    metrics.update({
-        "auc-roc":
-            100 * sklearn.metrics.roc_auc_score(
-                labels_indicator, probs, multi_class="ovr",
-                sample_weight=weights, average="macro"),
-        "auc-pr":
-            100 * sklearn.metrics.average_precision_score(
-                labels_indicator, probs, sample_weight=weights,
-                average="macro"),
-    })
-
+    metrics = {"f1": 100 * sklearn.metrics.f1_score(labels, predictions)}
+  metrics.update(
+      {
+          "auc-roc": 100 * sklearn.metrics.roc_auc_score(
+              labels_onehot, probs, multi_class="ovr"),
+          "auc-pr": 100 * sklearn.metrics.average_precision_score(
+              labels_onehot, probs),
+          "accuracy": 100 * sklearn.metrics.accuracy_score(labels, predictions),
+      })
   return metrics
-
-
-def _coqa_tokenize(inp: str) -> Sequence[str]:
-  """Normalize English text and tokenize into words based on spaces.
-
-  Adapted from official evaluation tokenization at
-  https://stanfordnlp.github.io/coqa/.
-
-  Args:
-    inp: string.
-
-  Returns:
-    Tokenization of normalized text as List[str]
-  """
-
-  def remove_articles(text):
-    regex = re.compile(r"\b(a|an|the)\b", re.UNICODE)
-    return re.sub(regex, " ", text)
-
-  def normalize_whitespace(text):
-    return " ".join(text.split())
-
-  def remove_punc(text):
-    exclude = set(string.punctuation)
-    return "".join(ch for ch in text if ch not in exclude)
-
-  return normalize_whitespace(remove_articles(remove_punc(inp.lower()))).split()
-
-
-def _sequence_f1(target_tokens: Sequence[str],
-                 prediction_tokens: Sequence[str]) -> float:
-  """Given target and prediction tokens, return token-wise F1 score."""
-
-  if not (target_tokens or prediction_tokens):
-    return int(target_tokens == prediction_tokens)
-
-  common_token_counts = (
-      collections.Counter(target_tokens) &
-      collections.Counter(prediction_tokens))
-  sum_common = sum(common_token_counts.values())
-  if sum_common == 0:
-    return 0
-
-  precision = 1.0 * sum_common / len(prediction_tokens)
-  recall = 1.0 * sum_common / len(target_tokens)
-  f1 = (2 * precision * recall) / (precision + recall)
-  return f1
-
-
-def coqa_f1(
-    targets: Sequence[Sequence[str]], predictions: Sequence[str]
-) -> Mapping[str, float]:
-  """Return mean sequence F1 score over all QA turns."""
-  f1s = []
-  for (target, p) in zip(targets, predictions):
-    assert isinstance(target, Sequence)
-    prediction_tokens = _coqa_tokenize(p)
-    example_f1s = [
-        _sequence_f1(_coqa_tokenize(t), prediction_tokens) for t in target
-    ]
-    f1s.append(max(example_f1s))
-  return {"f1": np.mean(np.array(f1s)) * 100}
-
-
-def edit_distance(targets, predictions, lower=True):
-  """Word-level edit distance between targets and predictions."""
-  edit_distances = []
-  for pred, target in zip(predictions, targets):
-    if lower:
-      pred = pred.lower()
-      target = target.lower()
-
-    # For simplicity, use regex-based tokenization that treats each
-    # contiguous chunk of characters matched by \w as a word.
-    pred = re.split("[^\\w]", pred)
-    target = re.split("[^\\w]", target)
-    edit_distances.append(editdistance.distance(pred, target))
-
-  return {"min_edit": min(edit_distances),
-          "max_edit": max(edit_distances),
-          "mean_edit": np.mean(edit_distances),
-          "median_edit": np.median(edit_distances),
-          "sum_edit": sum(edit_distances)}

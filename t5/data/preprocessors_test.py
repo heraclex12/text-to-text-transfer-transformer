@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,13 +14,11 @@
 
 """Tests for from t5.preprocessors."""
 
-import functools
-
 from absl.testing import absltest
 import gin
-import seqio
-from seqio import test_utils
 from t5.data import preprocessors as prep
+from t5.data import test_utils
+from t5.data.dataset_providers import Feature
 import tensorflow.compat.v2 as tf
 
 tf.compat.v1.enable_eager_execution()
@@ -38,7 +36,6 @@ class PreprocessorsTest(tf.test.TestCase):
     noise_mask = prep.regular_noise_mask(
         length=length,
         noise_density=noise_density,
-        seeds=[(0, 1), (2, 3)],
         min_span_length=span_length,
         max_span_length=span_length)
     num_masked = tf.reduce_sum(tf.cast(noise_mask, tf.int32))
@@ -50,131 +47,141 @@ class PreprocessorsTest(tf.test.TestCase):
       noise_density = 0.5
       noise_mask = prep.random_prefix_noise_mask(
           length=length,
-          noise_density=noise_density,
-          seeds=[(0, 1)])
+          noise_density=noise_density)
       first = noise_mask[0]
       last = noise_mask[-1]
       self.assertTrue(self.evaluate(first))
       self.assertFalse(self.evaluate(last))
 
-  def test_random_spans_helper(self):
-    input_length = 64
-    noise_density = 0.20
-    mean_noise_span_lengths = [2.0, 1.0]
-    expected_outputs = [(70, 22), (63, 27)]
-    for mean_length, expected_output in zip(mean_noise_span_lengths,
-                                            expected_outputs):
-      output = prep.random_spans_helper(input_length, noise_density,
-                                        mean_length, 1, 1)
-      self.assertAllEqual(output, expected_output)
-
   def test_random_spans_noise_mask(self):
+    tf.random.set_seed(55)
     length = 32
     noise_density = 0.25
     mean_noise_span_length = 2.0
     # there should be 4 noise spans with a total length of 8.
     noise_mask = prep.random_spans_noise_mask(
-        length, noise_density, [(1, 2), (3, 4)], mean_noise_span_length)
+        length, noise_density, mean_noise_span_length)
     output = self.evaluate(tf.cast(noise_mask, tf.int32))
     expected_output = [
-        0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1]
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1]
     self.assertAllEqual(output, expected_output)
 
   def test_noise_token_to_sentinel(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
     expected_output = [999, 999, 12, 13, 999, 15]
     output = self.evaluate(prep.noise_token_to_sentinel(
-        tokens, noise_mask, vocabulary, ()))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_noise_span_to_sentinel(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
     expected_output = [999, 12, 13, 999, 15]
     output = self.evaluate(prep.noise_span_to_sentinel(
-        tokens, noise_mask, vocabulary, ()))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_nonnoise_span_to_sentinel(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
     expected_output = [10, 11, 999, 14, 999]
     output = self.evaluate(prep.nonnoise_span_to_sentinel(
-        tokens, noise_mask, vocabulary, ()))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_noise_span_to_unique_sentinel(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
     expected_output = [999, 12, 13, 998, 15]
     output = self.evaluate(prep.noise_span_to_unique_sentinel(
-        tokens, noise_mask, vocabulary, ()))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_drop_noise_tokens(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
     expected_output = [12, 13, 15]
     output = self.evaluate(prep.drop_noise_tokens(
-        tokens, noise_mask, vocabulary, ()))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_drop_nonnoise_tokens(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
     expected_output = [10, 11, 14]
     output = self.evaluate(prep.drop_nonnoise_tokens(
-        tokens, noise_mask, vocabulary, ()))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_permute_noise_tokens(self):
     tf.random.set_seed(55)
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
-    expected_output = [10, 14, 12, 13, 11, 15]
+    expected_output = [11, 14, 12, 13, 10, 15]
     output = self.evaluate(prep.permute_noise_tokens(
-        tokens, noise_mask, vocabulary, [(0, 1)]))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
-    tf.random.set_seed(None)
 
   def test_noise_token_to_gathered_token(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    tf.random.set_seed(55)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
-    expected_output = [13, 14, 12, 13, 10, 15]
+    expected_output = [11, 11, 12, 13, 15, 15]
     output = self.evaluate(prep.noise_token_to_gathered_token(
-        tokens, noise_mask, vocabulary, [(55, 56)]))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_noise_token_to_random_token(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    tf.random.set_seed(55)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant([10, 11, 12, 13, 14, 15])
     noise_mask = tf.constant([True, True, False, False, True, False])
-    expected_output = [961, 553, 12, 13, 60, 15]
+    expected_output = [811, 309, 12, 13, 451, 15]
 
     output = self.evaluate(prep.noise_token_to_random_token(
-        tokens, noise_mask, vocabulary, seeds=[(55, 56)]))
+        tokens, noise_mask, vocabulary))
     self.assertAllEqual(output, expected_output)
 
   def test_noise_token_to_random_token_or_sentinel(self):
-    vocabulary = test_utils.MockVocabulary({'foo': [10]}, vocab_size=1000)
+    tf.random.set_seed(55)
+    vocabulary = test_utils.mock_vocabulary({'foo': 10}, vocab_size=1000)
     tokens = tf.constant(list(range(10)))
     noise_mask = tf.constant(
         [True, True, False, False, True, False, True, True, True, True])
-    expected_output = [999, 348, 2, 3, 108, 5, 999, 999, 999, 999]
+    expected_output = [436, 999, 2, 3, 999, 5, 999, 999, 999, 999]
     output = self.evaluate(prep.noise_token_to_random_token_or_sentinel(
-        tokens, noise_mask, vocabulary,
-        seeds=[(55, 56), (57, 58)], random_prob=0.2))
+        tokens, noise_mask, vocabulary, random_prob=0.2))
     self.assertAllEqual(output, expected_output)
+
+  def test_rekey(self):
+    og_dataset = tf.data.Dataset.from_tensors({
+        'text': 'That is good.', 'other': 'That is bad.'})
+    dataset = prep.rekey(og_dataset, {'inputs': 'other', 'targets': 'text'})
+    assert_dataset(
+        dataset,
+        {'inputs': 'That is bad.', 'targets': 'That is good.'})
+
+    dataset = prep.rekey(og_dataset, {'targets': 'text'})
+    assert_dataset(dataset, {'targets': 'That is good.'})
+
+    dataset = prep.rekey(og_dataset, {'inputs': 'text'})
+    assert_dataset(dataset, {'inputs': 'That is good.'})
+
+    dataset = prep.rekey(og_dataset)
+    assert_dataset(dataset, {'text': 'That is good.', 'other': 'That is bad.'})
+
+    dataset = prep.rekey(og_dataset, {'inputs': 'text', 'targets': None})
+    assert_dataset(dataset, {'inputs': 'That is good.', 'targets': ''})
 
   def test_translate(self):
     og_dataset = tf.data.Dataset.from_tensor_slices(
@@ -569,7 +576,6 @@ class PreprocessorsTest(tf.test.TestCase):
   def test_split_tokens(self):
     original = list(range(2, 102))
     og_dataset = tf.data.Dataset.from_tensors({'targets': original})
-
     # Verify splits with no max segments.
     def _verify_split(length, n_expected_outputs):
       ds = prep.split_tokens(
@@ -589,184 +595,6 @@ class PreprocessorsTest(tf.test.TestCase):
     _verify_split(30, 4)
     _verify_split(100, 1)
     _verify_split(1000, 1)
-
-  def test_split_tokens_rank2(self):
-    original = list([i, 2 * i] for i in range(2, 102))
-    og_dataset = tf.data.Dataset.from_tensors({'targets': original})
-
-    # Verify splits with no max segments.
-    def _verify_split(length, n_expected_outputs):
-      ds = prep.split_tokens(
-          og_dataset, unused_vocabulary=None, max_tokens_per_segment=length)
-      outputs = list(test_utils.dataset_as_text(ds))
-      self.assertLen(outputs, n_expected_outputs)
-      reconstructed = []
-      for ex in outputs[:-1]:
-        t = ex['targets']
-        self.assertLen(t, length)
-        reconstructed.extend(t)
-      final_t = outputs[-1]['targets']
-      self.assertLessEqual(len(final_t), length)
-      reconstructed.extend(final_t)
-      self.assertAllEqual(reconstructed, original)
-    _verify_split(25, 4)
-    _verify_split(30, 4)
-    _verify_split(100, 1)
-    _verify_split(1000, 1)
-
-  def test_split_padding_tokens(self):
-    original = [0] * 100
-    og_dataset = tf.data.Dataset.from_tensors({'targets': original})
-
-    # Verify splits with no max segments.
-    def _verify_split(length, n_expected_outputs):
-      ds = prep.split_tokens(
-          og_dataset, unused_vocabulary=None, max_tokens_per_segment=length)
-      outputs = list(test_utils.dataset_as_text(ds))
-      self.assertLen(outputs, n_expected_outputs)
-      reconstructed = []
-      for ex in outputs[:-1]:
-        t = ex['targets']
-        self.assertLen(t, length)
-        reconstructed.extend(t)
-      final_t = outputs[-1]['targets']
-      self.assertLessEqual(len(final_t), length)
-      reconstructed.extend(final_t)
-      self.assertEqual(reconstructed, original)
-    _verify_split(25, 4)
-    _verify_split(30, 4)
-    _verify_split(100, 1)
-    _verify_split(1000, 1)
-
-  def test_split_tokens_additional_features_passthrough(self):
-    original = list(range(2, 102))
-    original_aux = list(range(4, 104))
-    original_aux2d = list([i, 2 * i] for i in range(6, 106))
-    original_passthrough = list(range(20))
-    og_dataset = tf.data.Dataset.from_tensors({
-        'targets': original,
-        'aux': original_aux,
-        'aux2d': original_aux2d,
-        'passthrough': original_passthrough
-    })
-    # Verify splits with no max segments.
-    def _verify_split(length, n_expected_outputs):
-      ds = prep.split_tokens(
-          og_dataset, unused_vocabulary=None, max_tokens_per_segment=length,
-          additional_feature_keys=['aux', 'aux2d'],
-          passthrough_feature_keys=['passthrough'])
-      outputs = list(test_utils.dataset_as_text(ds))
-      self.assertLen(outputs, n_expected_outputs)
-      reconstructed = []
-      reconstructed_aux = []
-      reconstructed_aux2d = []
-      for ex in outputs[:-1]:
-        t = ex['targets']
-        self.assertLen(t, length)
-        reconstructed.extend(t)
-
-        a = ex['aux']
-        self.assertLen(a, length)
-        reconstructed_aux.extend(a)
-
-        a2d = ex['aux2d']
-        self.assertLen(a2d, length)
-        reconstructed_aux2d.extend(a2d)
-      final_t = outputs[-1]['targets']
-      self.assertLessEqual(len(final_t), length)
-      reconstructed.extend(final_t)
-      self.assertEqual(reconstructed, original)
-
-      final_a = outputs[-1]['aux']
-      self.assertLessEqual(len(final_a), length)
-      reconstructed_aux.extend(final_a)
-      self.assertEqual(reconstructed_aux, original_aux)
-
-      final_a2d = outputs[-1]['aux2d']
-      self.assertLessEqual(len(final_a2d), length)
-      reconstructed_aux2d.extend(final_a2d)
-      self.assertAllEqual(reconstructed_aux2d, original_aux2d)
-
-      for ex in outputs:
-        self.assertAllEqual(original_passthrough, ex['passthrough'])
-    _verify_split(25, 4)
-    _verify_split(30, 4)
-    _verify_split(100, 1)
-    _verify_split(1000, 1)
-
-  def test_split_tokens_additional_features_passthrough_rank0(self):
-    original = list(range(2, 102))
-    original_aux = list(range(4, 104))
-    original_passthrough = 1234
-    og_dataset = tf.data.Dataset.from_tensors({
-        'targets': original,
-        'aux': original_aux,
-        'passthrough': original_passthrough
-    })
-    # Verify splits with no max segments.
-    def _verify_split(length, n_expected_outputs):
-      ds = prep.split_tokens(
-          og_dataset, unused_vocabulary=None, max_tokens_per_segment=length,
-          additional_feature_keys=['aux'],
-          passthrough_feature_keys=['passthrough'])
-      outputs = list(test_utils.dataset_as_text(ds))
-      self.assertLen(outputs, n_expected_outputs)
-      reconstructed = []
-      reconstructed_aux = []
-      for ex in outputs[:-1]:
-        t = ex['targets']
-        self.assertLen(t, length)
-        reconstructed.extend(t)
-
-        a = ex['aux']
-        self.assertLen(a, length)
-        reconstructed_aux.extend(a)
-      final_t = outputs[-1]['targets']
-      self.assertLessEqual(len(final_t), length)
-      reconstructed.extend(final_t)
-      self.assertEqual(reconstructed, original)
-
-      final_a = outputs[-1]['aux']
-      self.assertLessEqual(len(final_a), length)
-      reconstructed_aux.extend(final_a)
-      self.assertEqual(reconstructed_aux, original_aux)
-
-      for ex in outputs:
-        self.assertAllEqual(original_passthrough, ex['passthrough'])
-    _verify_split(25, 4)
-    _verify_split(30, 4)
-    _verify_split(100, 1)
-    _verify_split(1000, 1)
-
-  def test_split_tokens_to_targets_length(self):
-    original = list(range(2, 102))
-    og_dataset = tf.data.Dataset.from_tensors({'targets': original})
-    sequence_length = {'targets': 4}
-    eos_features = {
-        'targets': seqio.Feature(
-            vocabulary=seqio.PassThroughVocabulary(102),
-            add_eos=True)
-    }
-    no_eos_features = {
-        'targets': seqio.Feature(
-            vocabulary=seqio.PassThroughVocabulary(102),
-            add_eos=False)
-    }
-
-    ds = prep.split_tokens_to_targets_length(
-        og_dataset,
-        sequence_length=sequence_length,
-        output_features=eos_features)
-    eos_outputs = list(ds.as_numpy_iterator())
-    # Outputs should be length 3 to leave room for adding EOS.
-    self.assertLen(eos_outputs[0]['targets'], 3)
-
-    ds = prep.split_tokens_to_targets_length(
-        og_dataset,
-        sequence_length=sequence_length,
-        output_features=no_eos_features)
-    no_eos_outputs = list(ds.as_numpy_iterator())
-    self.assertLen(no_eos_outputs[0]['targets'], 4)
 
   def test_trim_tokens_at_front(self):
     sequence_length = {'inputs': 4}
@@ -778,26 +606,15 @@ class PreprocessorsTest(tf.test.TestCase):
     test_utils.assert_dataset(output, expected_output)
 
   def test_split_text_to_words(self):
-    og_dataset = tf.data.Dataset.from_tensor_slices({
-        'text': [
-            'Here\'s a sentence. Here is another; it has a semicolon.',
-            'I\'m 2-words.',
-            'There_are_no_spaces_here_so_technically_this_is_one_word.',
-            '',
-        ]
-    })
-    dataset = prep.split_text_to_words(og_dataset)
-    test_utils.assert_dataset(dataset, [
+    dataset = tf.data.Dataset.from_tensor_slices(
+        {'text': ['That good.', 'That.']})
+    dataset = prep._split_text_to_words(dataset)
+    assert_dataset(
+        dataset,
         {
-            'words': ['Here\'s', 'a', 'sentence.', 'Here', 'is', 'another;',
-                      'it', 'has', 'a', 'semicolon.',],
-            'text': 'Here\'s a sentence. Here is another; it has a semicolon.'
-        },
-        {
-            'words': ['I\'m', '2-words.'],
-            'text': 'I\'m 2-words.'
-        },
-    ])
+            'text': 'That good.',
+            'words': ['That', 'good.']
+        })
 
   def test_definite_pronoun_resolution_simple(self):
     # Test where the pronoun is in the middle of the sentence. Also test the
@@ -1218,12 +1035,21 @@ class PreprocessorsTest(tf.test.TestCase):
         },
     ])
 
-  def test_parse_tsv(self):
+  def test_take(self):
+    og_dataset = tf.data.Dataset.from_tensor_slices({'inputs': [1]*100})
+    dataset = prep.take(og_dataset, 5)
+    assert_dataset(dataset, [{'inputs': 1} for _ in range(5)])
+    dataset = prep.take(og_dataset, -1)
+    assert_dataset(dataset, [{'inputs': 1} for _ in range(100)])
+
+  def parse_tsv(self):
     og_dataset = tf.data.Dataset.from_tensor_slices(['a\tb', 'c\td'])
     dataset = prep.parse_tsv(og_dataset, field_names=['f1', 'f2'])
     assert_dataset(dataset, [{'f1': 'a', 'f2': 'b'}, {'f1': 'c', 'f2': 'd'}])
 
   def test_denoise(self):
+    tf.random.set_seed(55)
+
     vocab = test_utils.sentencepiece_vocab()
     target_tokens = vocab.encode('The quick brown fox.')
 
@@ -1237,31 +1063,29 @@ class PreprocessorsTest(tf.test.TestCase):
     })
 
     output_features = {
-        'targets': seqio.Feature(vocab),
+        'targets': Feature(vocab),
     }
 
     # These are the parameters of denoise in the operative config of 'base'.
     # Except noise_density, bumped up from 0.15 to 0.3 in order to demonstrate
     # multiple corrupted spans.
-    with seqio.map_seed_manager(42):
-      denoised_dataset = prep.denoise(
-          og_dataset,
-          output_features,
-          noise_density=0.3,
-          noise_mask_fn=prep.random_spans_noise_mask,
-          inputs_fn=prep.noise_span_to_unique_sentinel,
-          targets_fn=prep.nonnoise_span_to_unique_sentinel,
-          input_feature_key='text_tokens')
+    denoised_dataset = prep.denoise(
+        og_dataset,
+        output_features,
+        noise_density=0.3,
+        noise_mask_fn=prep.random_spans_noise_mask,
+        inputs_fn=prep.noise_span_to_unique_sentinel,
+        targets_fn=prep.nonnoise_span_to_unique_sentinel)
 
     # Two spans corrupted, [2] and [22, 3, 2, 7, 2], replaced by unique
     # sentinels 25 and 24 respectively.
     assert_dataset(denoised_dataset, [
         {
-            'text_tokens': [
-                3, 2, 20, 4, 25, 2, 8, 13, 2, 3, 2, 23, 7, 19, 24
+            'inputs': [
+                3, 25, 20, 4, 3, 2, 8, 13, 2, 3, 2, 23, 7, 19, 24
             ],
             'targets': [
-                25, 3, 24, 22, 3, 2, 7, 2
+                25, 2, 24, 22, 3, 2, 7, 2
             ],
         },
     ])
@@ -1276,9 +1100,7 @@ class PreprocessorsTest(tf.test.TestCase):
     """
     gin.parse_config(bindings)
     og_dataset = tf.data.Dataset.from_tensor_slices({'targets': [1, 2, 3]})
-    output_features = {
-        'targets': seqio.Feature(test_utils.sentencepiece_vocab())
-    }
+    output_features = {'targets': Feature(test_utils.sentencepiece_vocab())}
     # Test denoise function when it is used as a gin-configurable of another
     # gin-configurable, prep.unsupervised.
     dataset = prep.unsupervised(og_dataset, output_features=output_features)
@@ -1286,15 +1108,10 @@ class PreprocessorsTest(tf.test.TestCase):
 
   def test_prefix_lm(self):
     vocab = test_utils.sentencepiece_vocab()
-    # Create list of length 99 because prefix_lm will split to 1 less than the
-    # max length of 100 to leave room for EOS token.
-    inp = list(range(1, 100))
+    inp = list(range(1, 101))
     og_dataset = tf.data.Dataset.from_tensor_slices({'targets': [inp]})
     og_dataset = og_dataset.repeat(100)
-    output_features = {
-        'targets': seqio.Feature(vocab),
-        'inputs': seqio.Feature(vocab),
-    }
+    output_features = {'targets': Feature(vocab)}
     output_dataset = prep.prefix_lm(
         og_dataset,
         {'inputs': 100, 'targets': 100},
@@ -1309,199 +1126,6 @@ class PreprocessorsTest(tf.test.TestCase):
     self.assertGreater(len(input_lengths), 1)
 
   def test_rank_classification(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'left': 'the sky is blue',
-        'right': 'cats are so cute',
-        'label_idx': 1,
-    })
-    preprocessor = functools.partial(
-        prep.rank_classification,
-        dataset,
-        inputs_fn=lambda features: [features['right'], features['left']],
-        targets_fn=lambda features: ['class 0', 'class 1'],
-        is_correct_fn=lambda features: tf.one_hot(features['label_idx'], 2))
-
-    test_utils.assert_dataset(
-        preprocessor(mode='train'),
-        [
-            {
-                'idx': [0, 1],
-                'inputs': 'the sky is blue',
-                'targets': 'class 1',
-                'is_correct': True,
-            }
-        ])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='eval'),
-        [
-            {
-                'idx': [0, 0],
-                'inputs': 'cats are so cute',
-                'targets': 'class 0',
-                'is_correct': False,
-            },
-            {
-                'idx': [0, 1],
-                'inputs': 'the sky is blue',
-                'targets': 'class 1',
-                'is_correct': True,
-            }
-        ])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='fewshot_eval'),
-        [
-            {
-                'idx': [[0, 0], [0, 1]],
-                'inputs': ['cats are so cute', 'the sky is blue'],
-                'targets': ['class 0', 'class 1'],
-                'is_correct': [False, True]
-            },
-        ])
-
-  def test_rank_classification_multilabel(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'left': 'the sky is blue',
-        'right': 'cats are so cute',
-    })
-
-    preprocessor = functools.partial(
-        prep.rank_classification,
-        dataset,
-        inputs_fn=lambda features: [features['right'], features['left'], 'X'],
-        targets_fn=lambda features: ['class 0', 'class 1', 'class 2'],
-        is_correct_fn=lambda features: [False, True, True])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='train'),
-        [
-            {
-                'idx': [0, 1],
-                'inputs': 'the sky is blue',
-                'targets': 'class 1',
-                'is_correct': True,
-            },
-            {
-                'idx': [0, 2],
-                'inputs': 'X',
-                'targets': 'class 2',
-                'is_correct': True,
-            },
-        ])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='eval'),
-        [
-            {
-                'idx': [0, 0],
-                'inputs': 'cats are so cute',
-                'targets': 'class 0',
-                'is_correct': False,
-            },
-            {
-                'idx': [0, 1],
-                'inputs': 'the sky is blue',
-                'targets': 'class 1',
-                'is_correct': True,
-            },
-            {
-                'idx': [0, 2],
-                'inputs': 'X',
-                'targets': 'class 2',
-                'is_correct': True,
-            },
-        ])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='fewshot_eval'),
-        [
-            {
-                'idx': [[0, 0], [0, 1], [0, 2]],
-                'inputs': ['cats are so cute', 'the sky is blue', 'X'],
-                'targets': ['class 0', 'class 1', 'class 2'],
-                'is_correct': [False, True, True]
-            },
-        ])
-
-  def test_rank_classification_with_weight(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'left': 'the sky is blue',
-        'right': 'cats are so cute',
-        'label_idx': 1,
-        'weight': 1.0,
-    })
-    preprocessor = functools.partial(
-        prep.rank_classification,
-        dataset,
-        inputs_fn=lambda features: [features['right'], features['left']],
-        targets_fn=lambda features: ['class 0', 'class 1'],
-        is_correct_fn=lambda features: [False, True],
-        weight_fn=lambda features: features['weight'])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='train'), [{
-            'idx': [0, 1],
-            'inputs': 'the sky is blue',
-            'targets': 'class 1',
-            'is_correct': True,
-            'weight': 1.0,
-        }])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='eval'), [{
-            'idx': [0, 0],
-            'inputs': 'cats are so cute',
-            'targets': 'class 0',
-            'is_correct': False,
-            'weight': 1.0,
-        }, {
-            'idx': [0, 1],
-            'inputs': 'the sky is blue',
-            'targets': 'class 1',
-            'is_correct': True,
-            'weight': 1.0,
-        }])
-
-    test_utils.assert_dataset(
-        preprocessor(mode='fewshot_eval'), [
-            {
-                'idx': [[0, 0], [0, 1]],
-                'inputs': ['cats are so cute', 'the sky is blue'],
-                'targets': ['class 0', 'class 1'],
-                'is_correct': [False, True],
-                'weight': [1, 1],
-            },
-        ])
-
-  def test_rank_classification_errors(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'left': 'the sky is blue',
-        'right': 'cats are so cute',
-    })
-
-    with self.assertRaisesRegex(
-        tf.errors.InvalidArgumentError,
-        '.*`inputs_fn`, `targets_fn`, and `is_correct_fn` must return the same '
-        'size tensors.*'):
-      list(prep.rank_classification(
-          dataset,
-          inputs_fn=lambda features: tf.stack([features['right']]),
-          targets_fn=lambda features: tf.stack(['class 0', 'class 1']),
-          is_correct_fn=lambda features: [False, True, True]))
-
-    with self.assertRaisesRegex(
-        tf.errors.InvalidArgumentError,
-        '.*`inputs_fn`, `targets_fn`, and `is_correct_fn` must return the same '
-        'size tensors.*'):
-      list(prep.rank_classification(
-          dataset,
-          inputs_fn=
-          lambda features: tf.stack([features['right'], features['left']]),
-          targets_fn=lambda features: tf.stack(['class 0', 'class 1']),
-          is_correct_fn=lambda features: [False, True, True]))
-
-  def test_rank_classification_formatter(self):
     input_examples = [
         {
             'premise': 'The farmland needed irrigation.',
@@ -1537,9 +1161,9 @@ class PreprocessorsTest(tf.test.TestCase):
         })
 
     # all options
-    dataset = prep.rank_classification_formatter(
+    dataset = prep.rank_classification(
         input_ds,
-        inputs_formats='{premise} What is the {question}? X',
+        inputs_format='{premise} What is the {question}? X',
         targets_formats=['I think {choice1}.', 'I think {choice2}.'],
         mode='eval')
 
@@ -1547,80 +1171,39 @@ class PreprocessorsTest(tf.test.TestCase):
         dataset,
         [
             {
-                'idx': [0, 0],
+                'idx': 0,
                 'inputs':
                     'The farmland needed irrigation. What is the effect? X',
                 'targets': 'I think a canal was constructed.',
-                'is_correct': True
+                'label': 0
             },
             {
-                'idx': [0, 1],
+                'idx': 0,
                 'inputs':
                     'The farmland needed irrigation. What is the effect? X',
                 'targets': 'I think the crops grew tall.',
-                'is_correct': False
+                'label': 0
             },
             {
-                'idx': [1, 0],
+                'idx': 1,
                 'inputs':
                     'I decided to stay home last night. What is the cause? X',
                 'targets': 'I think I wanted to see people.',
-                'is_correct': False
+                'label': 1
             },
             {
-                'idx': [1, 1],
+                'idx': 1,
                 'inputs':
                     'I decided to stay home last night. What is the cause? X',
                 'targets': 'I think I was too tired.',
-                'is_correct': True
+                'label': 1
             },
         ])
 
-    # Reverse inputs and targets for supporting the use case when there is
-    # one target, but multiple inputs to select from.
-    dataset = prep.rank_classification_formatter(
+    # label option only
+    dataset = prep.rank_classification(
         input_ds,
-        inputs_formats=['I think {choice1}.', 'I think {choice2}.'],
-        targets_formats='{premise} What is the {question}? X',
-        mode='eval')
-
-    test_utils.assert_dataset(
-        dataset,
-        [
-            {
-                'idx': [0, 0],
-                'targets':
-                    'The farmland needed irrigation. What is the effect? X',
-                'inputs': 'I think a canal was constructed.',
-                'is_correct': True
-            },
-            {
-                'idx': [0, 1],
-                'targets':
-                    'The farmland needed irrigation. What is the effect? X',
-                'inputs': 'I think the crops grew tall.',
-                'is_correct': False
-            },
-            {
-                'idx': [1, 0],
-                'targets':
-                    'I decided to stay home last night. What is the cause? X',
-                'inputs': 'I think I wanted to see people.',
-                'is_correct': False
-            },
-            {
-                'idx': [1, 1],
-                'targets':
-                    'I decided to stay home last night. What is the cause? X',
-                'inputs': 'I think I was too tired.',
-                'is_correct': True
-            },
-        ])
-
-    # train mode
-    dataset = prep.rank_classification_formatter(
-        input_ds,
-        inputs_formats='{premise} What is the {question}? X',
+        inputs_format='{premise} What is the {question}? X',
         targets_formats=['I think {choice1}.', 'I think {choice2}.'],
         mode='train')
 
@@ -1628,504 +1211,60 @@ class PreprocessorsTest(tf.test.TestCase):
         dataset,
         [
             {
-                'idx': [0, 0],
+                'idx': 0,
                 'inputs':
                     'The farmland needed irrigation. What is the effect? X',
                 'targets': 'I think a canal was constructed.',
-                'is_correct': True
+                'label': 0
             },
             {
-                'idx': [1, 1],
+                'idx': 1,
                 'inputs':
                     'I decided to stay home last night. What is the cause? X',
                 'targets': 'I think I was too tired.',
-                'is_correct': True
+                'label': 1
             },
         ])
 
-    # fewshot_eval mode
-    dataset = prep.rank_classification_formatter(
+    # label option only, repeated
+    dataset = prep.rank_classification(
         input_ds,
-        inputs_formats='{premise} What is the {question}? X',
+        inputs_format='{premise} What is the {question}? X',
         targets_formats=['I think {choice1}.', 'I think {choice2}.'],
-        mode='fewshot_eval')
+        mode='fewshot_train')
 
     test_utils.assert_dataset(
         dataset,
         [
             {
-                'idx': [[0, 0], [0, 1]],
-                'inputs': [
+                'idx': 0,
+                'inputs':
                     'The farmland needed irrigation. What is the effect? X',
-                    'The farmland needed irrigation. What is the effect? X',
-                ],
-                'targets': [
-                    'I think a canal was constructed.',
-                    'I think the crops grew tall.',
-                ],
-                'is_correct': [True, False]
+                'targets': 'I think a canal was constructed.',
+                'label': 0
             },
             {
-                'idx': [[1, 0], [1, 1]],
-                'inputs': [
+                'idx': 0,
+                'inputs':
+                    'The farmland needed irrigation. What is the effect? X',
+                'targets': 'I think a canal was constructed.',
+                'label': 0
+            },
+            {
+                'idx': 1,
+                'inputs':
                     'I decided to stay home last night. What is the cause? X',
+                'targets': 'I think I was too tired.',
+                'label': 1
+            },
+            {
+                'idx': 1,
+                'inputs':
                     'I decided to stay home last night. What is the cause? X',
-                ],
-                'targets': [
-                    'I think I wanted to see people.',
-                    'I think I was too tired.',
-                ],
-                'is_correct': [False, True]
+                'targets': 'I think I was too tired.',
+                'label': 1
             },
         ])
-
-  def test_nested_key_rank_classification_formatter(self):
-    input_ds = tf.data.Dataset.from_tensors({
-        'answerKey': 0,
-        'fact1': 'creating paper requires cutting down trees',
-        'question': {
-            'choice_A': 'forests',
-            'choice_B': 'canyons',
-            'sub_question': {
-                'stem': 'What is the ultimate source of greeting cards?'
-            }
-        }
-    })
-
-    dataset = prep.rank_classification_formatter(
-        input_ds,
-        inputs_formats='{fact1}. {question/sub_question/stem} X 0',
-        targets_formats=[
-            'Correct Answer: {question/choice_A} X 1 Incorrect Answer: '
-            '{question/choice_B} X 1',
-            'Correct Answer: {question/choice_B} X 1 Incorrect Answer: '
-            '{question/choice_A} X 1',
-        ],
-        mode='eval',
-        label_key='answerKey')
-
-    test_utils.assert_dataset(
-        dataset,
-        [
-            {
-                'idx': [0, 0],
-                'inputs':
-                    'creating paper requires cutting down trees. What is the '
-                    'ultimate source of greeting cards? X 0',
-                'targets':
-                    'Correct Answer: forests X 1 Incorrect Answer: canyons X 1',
-                'is_correct': True,
-            },
-            {
-                'idx': [0, 1],
-                'inputs':
-                    'creating paper requires cutting down trees. What is the '
-                    'ultimate source of greeting cards? X 0',
-                'targets':
-                    'Correct Answer: canyons X 1 Incorrect Answer: forests X 1',
-                'is_correct': False,
-            },
-        ])
-
-    with self.assertRaisesRegex(
-        ValueError,
-        'Final value of key \'question/sub_question\' must be a tf.string. '
-        'Got: dict'):
-      prep.rank_classification_formatter(
-          input_ds,
-          inputs_formats='{fact1}. {question/sub_question} X 0',
-          targets_formats=['test1', 'test2'],
-          mode='eval',
-          label_key='answerKey')
-
-    with self.assertRaises(TypeError):
-      prep.rank_classification_formatter(
-          input_ds,
-          inputs_formats='{fact1}. {answerKey} X 0',
-          targets_formats=['test1', 'test2'],
-          mode='eval',
-          label_key='answerKey')
-
-  def test_rank_classification_formatter_with_weight(self):
-    input_examples = [
-        {
-            'premise': 'The farmland needed irrigation.',
-            'question': 'effect',
-            'choice1': 'a canal was constructed',
-            'choice2': 'the crops grew tall',
-            'label': 0,
-            'weight': 1,
-        },
-        {
-            'premise': 'I decided to stay home last night.',
-            'question': 'cause',
-            'choice1': 'I wanted to see people',
-            'choice2': 'I was too tired',
-            'label': 1,
-            'weight': 0.5,
-        },
-    ]
-
-    input_ds = tf.data.Dataset.from_generator(
-        lambda: (x for x in input_examples),
-        output_types={
-            'premise': tf.string,
-            'question': tf.string,
-            'choice1': tf.string,
-            'choice2': tf.string,
-            'label': tf.int32,
-            'weight': tf.float32,
-        },
-        output_shapes={
-            'premise': [],
-            'question': [],
-            'choice1': [],
-            'choice2': [],
-            'label': [],
-            'weight': [],
-        })
-
-    # all options
-    dataset = prep.rank_classification_formatter(
-        input_ds,
-        inputs_formats='{premise} What is the {question}? X',
-        targets_formats=['I think {choice1}.', 'I think {choice2}.'],
-        weight_key='weight',
-        mode='eval')
-
-    test_utils.assert_dataset(dataset, [
-        {
-            'idx': [0, 0],
-            'inputs': 'The farmland needed irrigation. What is the effect? X',
-            'targets': 'I think a canal was constructed.',
-            'is_correct': True,
-            'weight': 1.0,
-        },
-        {
-            'idx': [0, 1],
-            'inputs': 'The farmland needed irrigation. What is the effect? X',
-            'targets': 'I think the crops grew tall.',
-            'is_correct': False,
-            'weight': 1.0,
-        },
-        {
-            'idx': [1, 0],
-            'inputs': 'I decided to stay home last night. What is the cause? X',
-            'targets': 'I think I wanted to see people.',
-            'is_correct': False,
-            'weight': 0.5,
-        },
-        {
-            'idx': [1, 1],
-            'inputs': 'I decided to stay home last night. What is the cause? X',
-            'targets': 'I think I was too tired.',
-            'is_correct': True,
-            'weight': 0.5,
-        },
-    ])
-
-    # train mode
-    dataset = prep.rank_classification_formatter(
-        input_ds,
-        inputs_formats='{premise} What is the {question}? X',
-        targets_formats=['I think {choice1}.', 'I think {choice2}.'],
-        weight_key='weight',
-        mode='train')
-
-    test_utils.assert_dataset(dataset, [
-        {
-            'idx': [0, 0],
-            'inputs': 'The farmland needed irrigation. What is the effect? X',
-            'targets': 'I think a canal was constructed.',
-            'is_correct': True,
-            'weight': 1.0,
-        },
-        {
-            'idx': [1, 1],
-            'inputs': 'I decided to stay home last night. What is the cause? X',
-            'targets': 'I think I was too tired.',
-            'is_correct': True,
-            'weight': 0.5,
-        },
-    ])
-
-    # fewshot_eval mode
-    dataset = prep.rank_classification_formatter(
-        input_ds,
-        inputs_formats='{premise} What is the {question}? X',
-        targets_formats=['I think {choice1}.', 'I think {choice2}.'],
-        weight_key='weight',
-        mode='fewshot_eval')
-
-    test_utils.assert_dataset(dataset, [
-        {
-            'idx': [[0, 0], [0, 1]],
-            'inputs': [
-                'The farmland needed irrigation. What is the effect? X',
-                'The farmland needed irrigation. What is the effect? X',
-            ],
-            'targets': [
-                'I think a canal was constructed.',
-                'I think the crops grew tall.',
-            ],
-            'is_correct': [True, False],
-            'weight': 1.0,
-        },
-        {
-            'idx': [[1, 0], [1, 1]],
-            'inputs': [
-                'I decided to stay home last night. What is the cause? X',
-                'I decided to stay home last night. What is the cause? X',
-            ],
-            'targets': [
-                'I think I wanted to see people.',
-                'I think I was too tired.',
-            ],
-            'is_correct': [False, True],
-            'weight': 0.5,
-        },
-    ])
-
-  def test_select_random_chunk(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [0, 1, 2, 3],
-        'inputs': [4, 5, 6, 7]
-    })
-    dataset = prep.select_random_chunk(
-        dataset, output_features=None, feature_key='targets', max_length=4)
-    output = list(dataset.as_numpy_iterator())
-    self.assertLen(output, 1)
-    output = output[0]
-    self.assertSequenceEqual(['targets'], list(output.keys()))
-    self.assertNotEmpty(output['targets'])
-
-  def test_select_random_chunk_rank2(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [[0, 9], [1, 8], [2, 7], [3, 6]],
-        'inputs': [4, 5, 6, 7]
-    })
-    dataset = prep.select_random_chunk(
-        dataset, output_features=None, feature_key='targets', max_length=4)
-    output = list(dataset.as_numpy_iterator())
-    self.assertLen(output, 1)
-    output = output[0]
-    self.assertSequenceEqual(['targets'], list(output.keys()))
-    self.assertNotEmpty(output['targets'])
-
-  def test_select_random_chunk_passthrough(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [0, 1, 2, 3],
-        'inputs': [4, 5, 6, 7],
-        'notes': 'hi',
-    })
-    dataset = prep.select_random_chunk(
-        dataset, output_features=None, feature_key='targets', max_length=4,
-        passthrough_feature_keys=['notes'])
-    output = list(dataset.as_numpy_iterator())
-    output = output[0]
-    self.assertSequenceEqual(['targets', 'notes'], list(output.keys()))
-    self.assertStringEqual('hi', output['notes'])
-
-  def test_select_random_chunk_uniform_start(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [0, 1, 2, 3],
-        'inputs': [4, 5, 6, 7]
-    })
-    dataset = prep.select_random_chunk(
-        dataset, output_features=None, feature_key='targets', max_length=4,
-        uniform_random_start=True)
-    output = list(dataset.as_numpy_iterator())
-    self.assertLen(output, 1)
-    output = output[0]
-    self.assertSequenceEqual(['targets'], list(output.keys()))
-    self.assertNotEmpty(output['targets'])
-
-  def test_select_random_chunk_additional_features(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [0, 1, 2, 3],
-        'inputs': [[4, 8], [5, 10], [6, 12], [7, 14]]
-    })
-    dataset = prep.select_random_chunk(
-        dataset, output_features=None, feature_key='targets',
-        additional_feature_keys=['inputs'], max_length=3)
-    output = list(dataset.as_numpy_iterator())
-    self.assertLen(output, 1)
-    output = output[0]
-    self.assertSequenceEqual(['inputs', 'targets'], sorted(list(output.keys())))
-    self.assertAllEqual(output['inputs'][:, 0] - 4, output['targets'])
-
-  def test_select_random_chunk_min_length(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [0, 1, 2, 3],
-        'inputs': [4, 5, 6, 7]
-    })
-    dataset = prep.select_random_chunk(
-        dataset, output_features=None, feature_key='targets', max_length=4,
-        uniform_random_start=True, min_length=1)
-    output = list(dataset.as_numpy_iterator())
-    self.assertLen(output, 1)
-    output = output[0]
-    self.assertSequenceEqual(['targets'], list(output.keys()))
-    self.assertNotEmpty(output['targets'])
-
-  def test_select_random_chunk_different_sizes(self):
-    dataset = tf.data.Dataset.from_tensors({
-        'targets': [0, 1, 2, 3],
-        'inputs': [4, 5]
-    })
-    with self.assertRaises(tf.errors.InvalidArgumentError):
-      dataset = prep.select_random_chunk(
-          dataset, output_features=None, feature_key='targets',
-          additional_feature_keys=['inputs'], max_length=4)
-      _ = list(dataset.as_numpy_iterator())
-
-  def test_pack_prefix_lm_encoder_decoder(self):
-
-    x = [{'targets': [0, 1, 2, 3, 4, 5, 6, 7]},
-         {'targets': [8, 9, 10, 11, 12, 13, 14, 15]},
-         {'targets': [16, 17, 18, 19, 20, 21, 22, 23]},
-         {'targets': [24, 25, 26, 27, 28, 29, 30, 31]}]
-    ds = test_utils.create_default_dataset(
-        x, feature_names=['targets'], output_shapes={'targets': [8]})
-
-    # With this seed, split points are 3 and 5
-    with seqio.utils.map_seed_manager(2):
-      packed_ds = prep.pack_prefix_lm_encoder_decoder(
-          ds, {'inputs': 8, 'targets': 8})
-
-    expected = [
-        {
-            'encoder_input_tokens': [0, 1, 2, 8, 9, 10, 11, 12],
-            'decoder_target_tokens': [3, 4, 5, 6, 7, 13, 14, 15],
-            # The first token of the second sequence (in this case index 5)
-            # should be 0 instead of the last token of the first sequence.
-            'decoder_input_tokens': [0, 3, 4, 5, 6, 0, 13, 14],
-            'encoder_segment_ids': [1, 1, 1, 2, 2, 2, 2, 2],
-            'encoder_positions': [0, 1, 2, 0, 1, 2, 3, 4],
-            'decoder_loss_weights': [1, 1, 1, 1, 1, 1, 1, 1],
-            'decoder_segment_ids': [1, 1, 1, 1, 1, 2, 2, 2],
-            'decoder_positions': [0, 1, 2, 3, 4, 0, 1, 2],
-        },
-        {
-            'encoder_input_tokens': [16, 17, 18, 19, 20, 24, 25, 26],
-            'decoder_target_tokens': [21, 22, 23, 27, 28, 29, 30, 31],
-            'decoder_input_tokens': [0, 21, 22, 0, 27, 28, 29, 30],
-            'encoder_segment_ids': [1, 1, 1, 1, 1, 2, 2, 2],
-            'encoder_positions': [0, 1, 2, 3, 4, 0, 1, 2],
-            'decoder_loss_weights': [1, 1, 1, 1, 1, 1, 1, 1],
-            'decoder_segment_ids': [1, 1, 1, 2, 2, 2, 2, 2],
-            'decoder_positions': [0, 1, 2, 0, 1, 2, 3, 4],
-        }
-    ]
-    assert_dataset(packed_ds, expected)
-
-  def test_pack_prefix_lm_encoder_decoder_with_padding(self):
-    x = [{'targets': [9, 1, 2, 3, 4, 5, 6, 0]},
-         {'targets': [8, 9, 10, 11, 12, 13, 0, 0]}]
-    ds = test_utils.create_default_dataset(
-        x, feature_names=['targets'], output_shapes={'targets': [8]})
-
-    # With this seed, split point is 3.
-    with seqio.utils.map_seed_manager(2):
-      packed_ds = prep.pack_prefix_lm_encoder_decoder(
-          ds, {'inputs': 8, 'targets': 8})
-
-    expected = [
-        {
-            'encoder_input_tokens': [9, 1, 2, 8, 9, 10, 11, 12],
-            'decoder_target_tokens': [3, 4, 5, 6, 0, 13, 0, 0],
-            'decoder_input_tokens': [0, 3, 4, 5, 6, 0, 13, 0],
-            'encoder_segment_ids': [1, 1, 1, 2, 2, 2, 2, 2],
-            'encoder_positions': [0, 1, 2, 0, 1, 2, 3, 4],
-            'decoder_loss_weights': [1, 1, 1, 1, 0, 1, 0, 0],
-            'decoder_segment_ids': [1, 1, 1, 1, 1, 2, 2, 2],
-            'decoder_positions': [0, 1, 2, 3, 4, 0, 1, 2],
-        },
-    ]
-    assert_dataset(packed_ds, expected)
-
-  def test_pack_prefix_lm_decoder_only(self):
-    x = [{'targets': [9, 1, 2, 3, 4, 5, 6, 7]},
-         {'targets': [8, 9, 10, 11, 12, 13, 14, 15]}]
-    ds = test_utils.create_default_dataset(x, feature_names=['targets'])
-
-    # With this seed, split points are 3 and 5.
-    with seqio.utils.map_seed_manager(2):
-      packed_ds = prep.pack_prefix_lm_decoder_only(ds, {'length': 8})
-
-    expected = [{
-        'decoder_target_tokens': [9, 1, 2, 3, 4, 5, 6, 7],
-        'decoder_input_tokens': [0, 9, 1, 2, 3, 4, 5, 6],
-        'decoder_loss_weights': [0, 0, 0, 1, 1, 1, 1, 1],
-        'decoder_causal_attention': [1, 1, 1, 1, 0, 0, 0, 0],
-    }, {
-        'decoder_target_tokens': [8, 9, 10, 11, 12, 13, 14, 15],
-        'decoder_input_tokens': [0, 8, 9, 10, 11, 12, 13, 14],
-        'decoder_loss_weights': [0, 0, 0, 0, 0, 1, 1, 1],
-        'decoder_causal_attention': [1, 1, 1, 1, 1, 1, 0, 0],
-    }]
-    assert_dataset(packed_ds, expected)
-
-  def test_pack_prefix_lm_decoder_only_with_padding(self):
-    x = [{'targets': [8, 9, 10, 11, 12, 13, 0, 0]}]
-    ds = test_utils.create_default_dataset(x, feature_names=['targets'])
-
-    # With this seed, split point is 3.
-    with seqio.utils.map_seed_manager(2):
-      packed_ds = prep.pack_prefix_lm_decoder_only(ds, {'length': 8})
-
-    expected = [{
-        'decoder_target_tokens': [8, 9, 10, 11, 12, 13, 0, 0],
-        'decoder_input_tokens': [0, 8, 9, 10, 11, 12, 13, 0],
-        'decoder_loss_weights': [0, 0, 0, 1, 1, 1, 0, 0],
-        'decoder_causal_attention': [1, 1, 1, 1, 0, 0, 0, 0],
-    }]
-    assert_dataset(packed_ds, expected)
-
-  def test_pack_prefix_lm_decoder_only_with_padding_loss_on_targets_false(self):
-    x = [{'targets': [8, 9, 10, 11, 12, 13, 0, 0]}]
-    ds = test_utils.create_default_dataset(x, feature_names=['targets'])
-
-    # With this seed, split point is 3.
-    with seqio.utils.map_seed_manager(2):
-      packed_ds = prep.pack_prefix_lm_decoder_only(
-          ds, {'length': 8}, loss_on_targets_only=False)
-
-    expected = [{
-        'decoder_target_tokens': [8, 9, 10, 11, 12, 13, 0, 0],
-        'decoder_input_tokens': [0, 8, 9, 10, 11, 12, 13, 0],
-        'decoder_loss_weights': [1, 1, 1, 1, 1, 1, 0, 0],
-        'decoder_causal_attention': [1, 1, 1, 1, 0, 0, 0, 0],
-    }]
-    assert_dataset(packed_ds, expected)
-
-  def test_preprocess_tsv_with_field_names(self):
-    x = tf.data.Dataset.from_tensor_slices(['6,7,42'])
-    dataset = prep.preprocess_tsv(
-        x,
-        field_delim=',',
-        field_names=['quot', 'denom', 'numer'],
-        inputs_format='numerator: {numer} denominator: {denom}',
-        targets_format='quotient: {quot}')
-    expected = {
-        'inputs': 'numerator: 42 denominator: 7',
-        'targets': 'quotient: 6'
-    }
-    assert_dataset(dataset, expected)
-
-  def test_preprocess_tsv_with_positions(self):
-    x = tf.data.Dataset.from_tensor_slices(['6,7,42'])
-    dataset = prep.preprocess_tsv(
-        x,
-        num_fields=3,
-        field_delim=',',
-        inputs_format='numerator: {2} denominator: {1}',
-        targets_format='quotient: {0}')
-    expected = {
-        'inputs': 'numerator: 42 denominator: 7',
-        'targets': 'quotient: 6'
-    }
-    assert_dataset(dataset, expected)
 
 
 if __name__ == '__main__':

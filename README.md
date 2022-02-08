@@ -65,7 +65,7 @@ In addition to text preprocessing, you can also use one or more **token preproce
 
 We provide many predefined preprocessors in `t5.data.preprocessors`, but you may also define your own.
 
-The **SentencePiece model** is used to tokenize the input strings and decode the output tokens. You can create your own model with the [google/sentencepiece](https://github.com/google/sentencepiece) library, or use our default one at `t5.data.DEFAULT_SPM_PATH`. If you create your own, you must use the flags `--pad_id=0 --eos_id=1 --unk_id=2 --bos_id=-1` with `spm_train` to be compatible with our model code.
+The **SentencePiece model** is used to tokenize the input strings and decode the output tokens. You can create your own model with the [google/sentencepiece](https://github.com/google/sentencepiece) library, or use our default one at `t5.data.DEFAULT_SPM_PATH`. If you create your own, you must use the flags `--pad_id=0 --eos_id=1 --unk_id=2` with `spm_train` to be compatible with our model code.
 
 The **metric function** returns a score given the target and prediction from the model. You may also define a **postprocess function** to convert the target and prediction text to another format before calling the metric. We provide some predefined metrics in `t5.evaluation.metrics`.
 
@@ -84,14 +84,14 @@ Finally, `t5.data` contains a `Mixture` class that can be instantiated to combin
 
 Currently there are two shims available: One for the [Mesh TensorFlow Transformer][mtft] that we used in our paper and another for the [Hugging Face Transformers library](https://huggingface.co/transformers/).
 The Hugging Face API is currently experimental and subject to change, but provides a simple and easy way to load, fine-tune, and evaluate our pre-trained models using PyTorch on a single GPU.
-If you want to use our largest models on TPUs and/or reproduce the results in our paper, you should use the [MtfModel](https://github.com/google-research/text-to-text-transfer-transformer/tree/main/t5/models/mtf_model.py) API and the `t5_mesh_transformer` binary.
-If you are interested fine-tuning our models on a GPU in PyTorch, you should try the [HfPyTorchModel](https://github.com/google-research/text-to-text-transfer-transformer/tree/main/t5/models/hf_model.py) API.
+If you want to use our largest models on TPUs and/or reproduce the results in our paper, you should use the [MtfModel](https://github.com/google-research/text-to-text-transfer-transformer/tree/master/t5/models/mtf_model.py) API and the `t5_mesh_transformer` binary.
+If you are interested fine-tuning our models on a GPU in PyTorch, you should try the [HfPyTorchModel](https://github.com/google-research/text-to-text-transfer-transformer/tree/master/t5/models/hf_model.py) API.
 Since the HfPyTorchModel is experimental, the remainder of this README assumes usage of the MtfModel and its associated binary.
 A usage example of HfPyTorchModel is available [here](https://github.com/google-research/text-to-text-transfer-transformer/blob/a08f0d1c4a7caa6495aec90ce769a29787c3c87c/t5/models/hf_model.py#L38).
 
 ## Usage
 
-The easiest way to try out T5 is with a free TPU in our [Colab Tutorial](https://colab.research.google.com/github/google-research/text-to-text-transfer-transformer/blob/main/notebooks/t5-trivia.ipynb).
+The easiest way to try out T5 is with a free TPU in our [Colab Tutorial](https://tiny.cc/t5-colab).
 
 Below we provide examples for how to pre-train, fine-tune, evaluate, and decode from a model from the command-line with our codebase. You can use these instructions to reproduce our results, fine-tune one of our released checkpoints with your own data and/or hyperparameters, or pre-train a model from scratch.
 
@@ -321,7 +321,7 @@ t5_mesh_transformer \
   --tpu_zone="${ZONE}" \
   --model_dir="${MODEL_DIR}" \
   --use_model_api \
-  --mode="export_predict" \
+  --mode="export" \
   --export_dir="/path/to/export/dir"
 ```
 
@@ -332,7 +332,7 @@ The command above exports the latest checkpoint in the model directory. To expor
   --checkpoint_steps=1000000
 ```
 
-The [t5-deploy notebook](https://colab.research.google.com/github/google-research/text-to-text-transfer-transformer/blob/main/notebooks/t5-deploy.ipynb) demonstrates exporting a `SavedModel` and packaging it in a [Docker](https://docs.docker.com) image for serving.
+The [t5-deploy notebook](https://colab.research.google.com/github/google-research/text-to-text-transfer-transformer/blob/master/notebooks/t5-deploy.ipynb) demonstrates exporting a `SavedModel` and packaging it in a [Docker](https://docs.docker.com) image for serving.
 
 ### GPU Usage
 
@@ -441,7 +441,7 @@ See [here][released_checkpoints] for a list of additional experimental pre-train
 # How to Cite
 If you extend or use this work, please cite the [paper][paper] where it was introduced:
 
-```bibtex
+```
 @article{2020t5,
   author  = {Colin Raffel and Noam Shazeer and Adam Roberts and Katherine Lee and Sharan Narang and Michael Matena and Yanqi Zhou and Wei Li and Peter J. Liu},
   title   = {Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer},
@@ -455,7 +455,7 @@ If you extend or use this work, please cite the [paper][paper] where it was intr
 ```
 
 [paper]: https://arxiv.org/abs/1910.10683
-[released_checkpoints]: https://github.com/google-research/text-to-text-transfer-transformer/blob/main/released_checkpoints.md
+[released_checkpoints]: https://github.com/google-research/text-to-text-transfer-transformer/blob/master/released_checkpoints.md
 [beam]: https://beam.apache.org
 [c4]: https://www.tensorflow.org/datasets/catalog/c4
 [cc]: https://commoncrawl.org

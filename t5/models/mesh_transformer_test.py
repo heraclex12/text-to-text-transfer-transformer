@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
 """Tests for t5.models.mesh_transformer."""
 
 from absl.testing import absltest
-import seqio
+from t5.data import test_utils
 from t5.models import mesh_transformer
 import tensorflow.compat.v1 as tf
 import tensorflow_datasets as tfds
 
+tf.disable_v2_behavior()
 tf.enable_eager_execution()
 
 
-class MeshDatasetFnsTest(seqio.test_utils.FakeMixtureTest):
+class MeshDatasetFnsTest(test_utils.FakeMixtureTest):
 
   def check_ds_shape(self, ds, sequence_length):
     for k, v in tf.data.get_output_shapes(ds).items():
@@ -64,7 +65,7 @@ class MeshDatasetFnsTest(seqio.test_utils.FakeMixtureTest):
       # No postprocess_fn is supplied so it should function as a pass-through
       self.assertEqual("test", postprocess_fn("test"))
       # test_utils task has empty metric_fns list
-      self.assertEmpty(metric_fns)
+      self.assertEqual([], metric_fns)
       # Materialize the full dataset to test for errors.
       list(tfds.as_numpy(ds))
 
@@ -83,6 +84,43 @@ class MeshDatasetFnsTest(seqio.test_utils.FakeMixtureTest):
     self.verify_mesh_dataset_fn(
         mixture_name="uncached_mixture", train=False, use_cached=False,
     )
+
+  def test_maybe_shuffle_and_subsample_dataset_no_shuffle(self):
+    ds = tf.data.Dataset.range(100)
+
+    num_eval_examples = 10
+    shuffle_eval_examples = False
+    num_repeat = 2
+    ds = mesh_transformer.maybe_shuffle_and_subsample_dataset(
+        ds, num_eval_examples, shuffle_eval_examples)
+    ds = ds.repeat(num_repeat)
+
+    list_examples = list(tfds.as_numpy(ds))
+
+    # Assert on the number of examples.
+    self.assertLen(list_examples, num_eval_examples * num_repeat)
+    # Since `shuffle_eval_examples` is false, we will get the same examples
+    # repeated `num_repeat` times.
+    # Ex: [0, 1, 2, 3, 0, 1, 2, 3]
+    self.assertEqual(list_examples, list(range(num_eval_examples)) * num_repeat)
+
+  def test_maybe_shuffle_and_subsample_dataset_shuffle(self):
+    ds = tf.data.Dataset.range(100)
+
+    num_eval_examples = 10
+    shuffle_eval_examples = True
+    num_repeat = 2
+    ds = mesh_transformer.maybe_shuffle_and_subsample_dataset(
+        ds, num_eval_examples, shuffle_eval_examples,
+        num_repeat * num_eval_examples)  # shuffle buffer size.
+    ds = ds.repeat(num_repeat)
+
+    list_examples = list(tfds.as_numpy(ds))
+
+    # With high probability, not every slice of `num_eval_examples` in
+    # `list_examples` will be the same.
+    self.assertNotEqual(list_examples[:num_eval_examples],
+                        list_examples[num_eval_examples:2 * num_eval_examples])
 
 if __name__ == "__main__":
   absltest.main()

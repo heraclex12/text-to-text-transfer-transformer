@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,50 +13,39 @@
 # limitations under the License.
 
 """Add Tasks to registry."""
-# TODO(adarob): Switch to seqio.Task.
-
 import functools
 
-import seqio
-import t5.data
 from t5.data import postprocessors
 from t5.data import preprocessors
+from t5.data.dataset_providers import Feature
+from t5.data.dataset_providers import TaskRegistry
+from t5.data.dataset_providers import TfdsTask
 from t5.data.glue_utils import get_glue_metric
 from t5.data.glue_utils import get_glue_postprocess_fn
 from t5.data.glue_utils import get_glue_text_preprocessor
 from t5.data.glue_utils import get_super_glue_metric
+from t5.data.utils import get_default_vocabulary
+from t5.data.utils import set_global_cache_dirs
 from t5.evaluation import metrics
 import tensorflow_datasets as tfds
-
-TaskRegistry = seqio.TaskRegistry
 
 
 
 DEFAULT_OUTPUT_FEATURES = {
-    "inputs": seqio.Feature(
-        vocabulary=t5.data.get_default_vocabulary(), add_eos=True,
-        required=False),
-    "targets": seqio.Feature(
-        vocabulary=t5.data.get_default_vocabulary(), add_eos=True)
+    "inputs": Feature(
+        vocabulary=get_default_vocabulary, add_eos=True, required=False),
+    "targets": Feature(vocabulary=get_default_vocabulary, add_eos=True)
 }
 
 # ==================================== C4 ======================================
 # Final pretraining task used in Raffel et al., 2019.
 TaskRegistry.add(
     "c4_v220_span_corruption",
-    source=seqio.TfdsDataSource(tfds_name="c4/en:2.2.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.span_corruption,
-        seqio.preprocessors.append_eos_after_trim,
-
-    ],
+    TfdsTask,
+    tfds_name="c4/en:2.2.0",
+    text_preprocessor=functools.partial(
+        preprocessors.rekey, key_map={"inputs": None, "targets": "text"}),
+    token_preprocessor=preprocessors.span_corruption,
     output_features=DEFAULT_OUTPUT_FEATURES,
     metric_fns=[])
 
@@ -64,18 +53,11 @@ TaskRegistry.add(
 # Baseline pretraining task used in Raffel et al., 2019.
 TaskRegistry.add(
     "c4_v220_iid_denoising",
-    source=seqio.TfdsDataSource(tfds_name="c4/en:2.2.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.iid_denoising,
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="c4/en:2.2.0",
+    text_preprocessor=functools.partial(
+        preprocessors.rekey, key_map={"inputs": None, "targets": "text"}),
+    token_preprocessor=preprocessors.iid_denoising,
     output_features=DEFAULT_OUTPUT_FEATURES,
     metric_fns=[])
 
@@ -83,18 +65,11 @@ TaskRegistry.add(
 # Prefix language modeling pretraining task used in Raffel et al., 2019.
 TaskRegistry.add(
     "c4_v220_prefix_lm",
-    source=seqio.TfdsDataSource(tfds_name="c4/en:2.2.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.prefix_lm,
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="c4/en:2.2.0",
+    text_preprocessor=functools.partial(
+        preprocessors.rekey, key_map={"inputs": None, "targets": "text"}),
+    token_preprocessor=preprocessors.prefix_lm,
     output_features=DEFAULT_OUTPUT_FEATURES,
     metric_fns=[])
 
@@ -103,20 +78,13 @@ TaskRegistry.add(
 _c4_config_suffixes = ["", ".noclean", ".realnewslike", ".webtextlike"]
 for config_suffix in _c4_config_suffixes:
   TaskRegistry.add(
-      "c4{name}_v020_unsupervised".format(name=config_suffix.replace(".", "_")),
-      source=seqio.TfdsDataSource(tfds_name="c4/en{config}:2.2.0".format(
-          config=config_suffix)),
-      preprocessors=[
-          functools.partial(
-              preprocessors.rekey, key_map={
-                  "inputs": None,
-                  "targets": "text"
-              }),
-          seqio.preprocessors.tokenize,
-          seqio.CacheDatasetPlaceholder(),
-          preprocessors.unsupervised,
-          seqio.preprocessors.append_eos_after_trim,
-      ],
+      "c4{name}_v020_unsupervised".format(
+          name=config_suffix.replace(".", "_")),
+      TfdsTask,
+      tfds_name="c4/en{config}:2.2.0".format(config=config_suffix),
+      text_preprocessor=functools.partial(
+          preprocessors.rekey, key_map={"inputs": None, "targets": "text"}),
+      token_preprocessor=preprocessors.unsupervised,
       output_features=DEFAULT_OUTPUT_FEATURES,
       metric_fns=[])
 
@@ -124,18 +92,11 @@ for config_suffix in _c4_config_suffixes:
 # ================================ Wikipedia ===================================
 TaskRegistry.add(
     "wikipedia_20190301.en_v003_unsupervised",
-    source=seqio.TfdsDataSource(tfds_name="wikipedia/20190301.en:1.0.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.unsupervised,
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="wikipedia/20190301.en:1.0.0",
+    text_preprocessor=functools.partial(
+        preprocessors.rekey, key_map={"inputs": None, "targets": "text"}),
+    token_preprocessor=preprocessors.unsupervised,
     output_features=DEFAULT_OUTPUT_FEATURES,
     metric_fns=[])
 
@@ -144,32 +105,23 @@ TaskRegistry.add(
 for b in tfds.text.glue.Glue.builder_configs.values():
   TaskRegistry.add(
       "glue_%s_v002" % b.name,
-      source=seqio.TfdsDataSource(
-          tfds_name="glue/%s:1.0.0" % b.name,
-          splits=["test"] if b.name == "ax" else None),
-      preprocessors=[
-          get_glue_text_preprocessor(b),
-          seqio.preprocessors.tokenize,
-          seqio.CacheDatasetPlaceholder(),
-          seqio.preprocessors.append_eos_after_trim,
-      ],
+      TfdsTask,
+      tfds_name="glue/%s:1.0.0" % b.name,
+      text_preprocessor=get_glue_text_preprocessor(b),
       metric_fns=get_glue_metric(b.name),
       output_features=DEFAULT_OUTPUT_FEATURES,
-      postprocess_fn=get_glue_postprocess_fn(b))
+      postprocess_fn=get_glue_postprocess_fn(b),
+      splits=["test"] if b.name == "ax" else None,
+  )
 
 # =============================== CNN DailyMail ================================
 TaskRegistry.add(
     "cnn_dailymail_v002",
-    source=seqio.TfdsDataSource(tfds_name="cnn_dailymail:3.1.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.summarize,
-            article_key="article",
-            summary_key="highlights"),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="cnn_dailymail:1.0.0",
+    text_preprocessor=functools.partial(preprocessors.summarize,
+                                        article_key="article",
+                                        summary_key="highlights"),
     metric_fns=[metrics.rouge],
     output_features=DEFAULT_OUTPUT_FEATURES)
 
@@ -191,18 +143,13 @@ b_configs = [
 for prefix, b, tfds_version in b_configs:
   TaskRegistry.add(
       "wmt%s_%s%s_v003" % (prefix, b.language_pair[1], b.language_pair[0]),
-      source=seqio.TfdsDataSource(tfds_name="wmt%s_translate/%s:%s" %
-                                  (prefix, b.name, tfds_version)),
-      preprocessors=[
-          functools.partial(
-              preprocessors.translate,
-              source_language=b.language_pair[1],
-              target_language=b.language_pair[0],
+      TfdsTask,
+      tfds_name="wmt%s_translate/%s:%s" % (prefix, b.name, tfds_version),
+      text_preprocessor=functools.partial(
+          preprocessors.translate,
+          source_language=b.language_pair[1],
+          target_language=b.language_pair[0],
           ),
-          seqio.preprocessors.tokenize,
-          seqio.CacheDatasetPlaceholder(),
-          seqio.preprocessors.append_eos_after_trim,
-      ],
       metric_fns=[metrics.bleu],
       output_features=DEFAULT_OUTPUT_FEATURES)
 
@@ -210,16 +157,13 @@ for prefix, b, tfds_version in b_configs:
 b = tfds.translate.wmt_t2t.WmtT2tTranslate.builder_configs["de-en"]
 TaskRegistry.add(
     "wmt_t2t_ende_v003",
-    source=seqio.TfdsDataSource(tfds_name="wmt_t2t_translate/de-en:1.0.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.translate,
-            source_language=b.language_pair[1],
-            target_language=b.language_pair[0]),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="wmt_t2t_translate/de-en:1.0.0",
+    text_preprocessor=functools.partial(
+        preprocessors.translate,
+        source_language=b.language_pair[1],
+        target_language=b.language_pair[0],
+        ),
     metric_fns=[metrics.bleu],
     output_features=DEFAULT_OUTPUT_FEATURES)
 
@@ -229,7 +173,7 @@ for b in tfds.text.super_glue.SuperGlue.builder_configs.values():
   if "wsc" in b.name:
     continue
   if b.name == "axb":
-    glue_preprocessors = [
+    text_preprocessor = [
         functools.partial(
             preprocessors.rekey,
             key_map={
@@ -238,110 +182,68 @@ for b in tfds.text.super_glue.SuperGlue.builder_configs.values():
                 "label": "label",
                 "idx": "idx",
             }),
-        get_glue_text_preprocessor(b),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
+        get_glue_text_preprocessor(b)
     ]
   else:
-    glue_preprocessors = [
-        get_glue_text_preprocessor(b),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ]
+    text_preprocessor = get_glue_text_preprocessor(b)
   TaskRegistry.add(
       "super_glue_%s_v102" % b.name,
-      source=seqio.TfdsDataSource(
-          tfds_name="super_glue/%s:1.0.2" % b.name,
-          splits=["test"] if b.name in ["axb", "axg"] else None),
-      preprocessors=glue_preprocessors,
+      TfdsTask,
+      tfds_name="super_glue/%s:1.0.2" % b.name,
+      text_preprocessor=text_preprocessor,
       metric_fns=get_super_glue_metric(b.name),
       output_features=DEFAULT_OUTPUT_FEATURES,
-      postprocess_fn=get_glue_postprocess_fn(b))
-
-  # Create SuperGLUE tasks with 1 sentinel token added.
-  seqio.experimental.add_task_with_sentinels("super_glue_%s_v102" % b.name,
-                                             num_sentinels=1)
+      postprocess_fn=get_glue_postprocess_fn(b),
+      splits=["test"] if b.name in ["axb", "axg"] else None)
 
 # ======================== Definite Pronoun Resolution =========================
 TaskRegistry.add(
     "dpr_v001_simple",
-    source=seqio.TfdsDataSource(tfds_name="definite_pronoun_resolution:1.1.0"),
-    preprocessors=[
-        preprocessors.definite_pronoun_resolution_simple,
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="definite_pronoun_resolution:1.1.0",
+    text_preprocessor=preprocessors.definite_pronoun_resolution_simple,
     metric_fns=[metrics.accuracy],
     output_features=DEFAULT_OUTPUT_FEATURES)
-
-# Create SuperGLUE tasks with 1 sentinel token added.
-seqio.experimental.add_task_with_sentinels("dpr_v001_simple", num_sentinels=1)
 
 # =================================== WSC ======================================
 TaskRegistry.add(
     "super_glue_wsc_v102_simple_train",
-    source=seqio.TfdsDataSource(
-        tfds_name="super_glue/wsc.fixed:1.0.2", splits=["train"]),
-    preprocessors=[
-        functools.partial(preprocessors.wsc_simple, correct_referent_only=True),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="super_glue/wsc.fixed:1.0.2",
+    text_preprocessor=functools.partial(
+        preprocessors.wsc_simple, correct_referent_only=True),
     metric_fns=[],
-    output_features=DEFAULT_OUTPUT_FEATURES)
-
-# Create SuperGLUE tasks with 1 sentinel token added.
-seqio.experimental.add_task_with_sentinels("super_glue_wsc_v102_simple_train",
-                                           num_sentinels=1)
-
+    output_features=DEFAULT_OUTPUT_FEATURES,
+    splits=["train"])
 TaskRegistry.add(
     "super_glue_wsc_v102_simple_eval",
-    source=seqio.TfdsDataSource(
-        tfds_name="super_glue/wsc.fixed:1.0.2", splits=["validation", "test"]),
-    preprocessors=[
-        functools.partial(
-            preprocessors.wsc_simple, correct_referent_only=False),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="super_glue/wsc.fixed:1.0.2",
+    text_preprocessor=functools.partial(
+        preprocessors.wsc_simple, correct_referent_only=False),
     postprocess_fn=postprocessors.wsc_simple,
     metric_fns=[metrics.accuracy],
-    output_features=DEFAULT_OUTPUT_FEATURES)
-# Create SuperGLUE tasks with 1 sentinel token added.
-seqio.experimental.add_task_with_sentinels("super_glue_wsc_v102_simple_eval",
-                                           num_sentinels=1)
+    output_features=DEFAULT_OUTPUT_FEATURES,
+    splits=["validation", "test"])
 
 # =================================== WNLI =====================================
 TaskRegistry.add(
     "glue_wnli_v002_simple_eval",
-    source=seqio.TfdsDataSource(
-        tfds_name="glue/wnli:1.0.0", splits=["validation", "test"]),
-    preprocessors=[
-        preprocessors.wnli_simple,
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="glue/wnli:1.0.0",
+    text_preprocessor=preprocessors.wnli_simple,
     postprocess_fn=postprocessors.wsc_simple,
     metric_fns=[metrics.accuracy],
-    output_features=DEFAULT_OUTPUT_FEATURES)
+    output_features=DEFAULT_OUTPUT_FEATURES,
+    splits=["validation", "test"])
 
 # =================================== Squad ====================================
 # Maximized evaluation metrics over all answers.
 TaskRegistry.add(
     "squad_v010_allanswers",
-    source=seqio.TfdsDataSource(tfds_name="squad/v1.1:3.0.0"),
-    preprocessors=[
-        preprocessors.squad,
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="squad/v1.1:2.0.0",
+    text_preprocessor=preprocessors.squad,
     postprocess_fn=postprocessors.qa,
     metric_fns=[metrics.squad],
     output_features=DEFAULT_OUTPUT_FEATURES)
@@ -350,13 +252,10 @@ TaskRegistry.add(
 # Maximized evaluation metrics over all answers.
 TaskRegistry.add(
     "squad_v010_context_free",
-    source=seqio.TfdsDataSource(tfds_name="squad/v1.1:3.0.0"),
-    preprocessors=[
-        functools.partial(preprocessors.squad, include_context=False),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="squad/v1.1:2.0.0",
+    text_preprocessor=functools.partial(
+        preprocessors.squad, include_context=False),
     postprocess_fn=postprocessors.qa,
     metric_fns=[metrics.squad],
     output_features=DEFAULT_OUTPUT_FEATURES)
@@ -364,13 +263,9 @@ TaskRegistry.add(
 # Squad span prediction task instead of text.
 TaskRegistry.add(
     "squad_v010_allanswers_span",
-    source=seqio.TfdsDataSource(tfds_name="squad/v1.1:3.0.0"),
-    preprocessors=[
-        preprocessors.squad_span_space_tokenized,
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="squad/v1.1:2.0.0",
+    text_preprocessor=preprocessors.squad_span_space_tokenized,
     postprocess_fn=postprocessors.span_qa,
     metric_fns=[metrics.span_squad],
     output_features=DEFAULT_OUTPUT_FEATURES)
@@ -378,112 +273,18 @@ TaskRegistry.add(
 # Deprecated: Use `squad_v010_allanswers` instead.
 TaskRegistry.add(
     "squad_v010",
-    source=seqio.TfdsDataSource(tfds_name="squad/v1.1:3.0.0"),
-    preprocessors=[
-        preprocessors.squad,
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="squad/v1.1:2.0.0",
+    text_preprocessor=preprocessors.squad,
     metric_fns=[metrics.squad],
     output_features=DEFAULT_OUTPUT_FEATURES)
 
 # ================================= TriviaQA ===================================
 TaskRegistry.add(
     "trivia_qa_v010",
-    source=seqio.TfdsDataSource(tfds_name="trivia_qa/rc:1.1.0"),
-    preprocessors=[
-        preprocessors.trivia_qa,
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.trivia_qa_truncate_inputs,
-        seqio.preprocessors.append_eos_after_trim,
-    ],
+    TfdsTask,
+    tfds_name="trivia_qa:1.1.0",
+    text_preprocessor=preprocessors.trivia_qa,
     metric_fns=[],
+    token_preprocessor=preprocessors.trivia_qa_truncate_inputs,
     output_features=DEFAULT_OUTPUT_FEATURES)
-
-
-# =============== PrefixLM objectives (not used in the T5 paper) ===============
-
-
-# Vocabulary (shared by encoder and decoder)
-sentencepiece_model_file = "gs://t5-data/vocabs/cc_all.32000.100extra/sentencepiece.model"
-
-vocab = seqio.SentencePieceVocabulary(sentencepiece_model_file)
-
-seqio.TaskRegistry.add(
-    "c4_prefix_lm_objective_encoder_decoder_architecture",
-    source=seqio.TfdsDataSource(tfds_name="c4/en:2.2.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.targets_for_prefix_lm_objective,
-        preprocessors.pack_prefix_lm_encoder_decoder,
-    ],
-    output_features={
-        "encoder_input_tokens": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_target_tokens": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_input_tokens": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "encoder_segment_ids": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "encoder_positions": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_segment_ids": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_positions": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_loss_weights": seqio.Feature(vocabulary=vocab, add_eos=False),
-        # All but the last stage of the preprocessing uses "targets" as the key,
-        # so this output feature is necessary. It is not marked required because
-        # the final preprocessor drops it.
-        "targets": seqio.Feature(vocabulary=vocab, required=False),
-    },
-    metric_fns=[])
-
-
-seqio.TaskRegistry.add(
-    "c4_prefix_lm_objective_decoder_architecture",
-    source=seqio.TfdsDataSource(tfds_name="c4/en:2.2.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.targets_for_prefix_lm_objective,
-        preprocessors.pack_prefix_lm_decoder_only,
-    ],
-    output_features={
-        "decoder_target_tokens": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_input_tokens": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_loss_weights": seqio.Feature(vocabulary=vocab, add_eos=False),
-        "decoder_causal_attention": seqio.Feature(
-            vocabulary=vocab, add_eos=False),
-        # All but the last stage of the preprocessing uses "targets" as the key,
-        # so this output feature is necessary. It is not marked required because
-        # the final preprocessor drops it.
-        "targets": seqio.Feature(vocabulary=vocab, required=False),
-    },
-    metric_fns=[])
-
-
-TaskRegistry.add(
-    "c4_v220_full_lm",
-    source=seqio.TfdsDataSource(tfds_name="c4/en:2.2.0"),
-    preprocessors=[
-        functools.partial(
-            preprocessors.rekey, key_map={
-                "inputs": None,
-                "targets": "text"
-            }),
-        seqio.preprocessors.tokenize,
-        seqio.CacheDatasetPlaceholder(),
-        preprocessors.full_lm,
-    ],
-    output_features={
-        "targets": seqio.Feature(vocabulary=vocab, add_eos=True)
-    },
-    metric_fns=[])

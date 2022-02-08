@@ -1,4 +1,4 @@
-# Copyright 2022 The T5 Authors.
+# Copyright 2020 The T5 Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -140,8 +140,6 @@ def main(_):
 
     logging.info("Read from checkpoint %s", checkpoint)
 
-  new_var_values = {}
-
   # stack the list of tensors along the 0th dimension.
   for name, tensors in var_values.items():
     tensor = tensors[0]
@@ -157,9 +155,7 @@ def main(_):
       new_val = tensor[0]
     else:
       raise ValueError("unknown FLAGS.operation=%s" % FLAGS.operation)
-    new_var_values[name] = new_val
-
-  var_values = new_var_values
+    var_values[name] = new_val
 
   with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
     tf_vars = [
