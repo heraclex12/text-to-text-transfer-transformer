@@ -1768,6 +1768,7 @@ def prefix_lm(dataset, sequence_length, output_features):
 def select_random_chunk(dataset,
                         max_length=gin.REQUIRED,
                         feature_key='targets',
+                        passthrough_key='question',
                         **unused_kwargs):
   """Token-preprocessor to extract one span of at most `max_length` tokens.
 
@@ -1802,7 +1803,7 @@ def select_random_chunk(dataset,
     start = max_length * tf.random.uniform(
         [], maxval=num_segments, dtype=tf.int32)
     end = tf.minimum(start + max_length, n_tokens)
-    return {feature_key: tokens[start:end]}
+    return {feature_key: tokens[start:end], passthrough_key: x['inputs']}
   # Filter empty examples.
   dataset = dataset.filter(lambda x: tf.not_equal(tf.size(x[feature_key]), 0))
   return dataset.map(_my_fn, num_parallel_calls=AUTOTUNE)
@@ -1844,6 +1845,7 @@ def split_tokens(dataset,
                  min_tokens_per_segment=None,
                  max_tokens_per_segment=gin.REQUIRED,
                  feature_key='targets',
+                 passthrough_key='question',
                  **unused_kwargs):
   """Split examples into multiple examples each.
 
@@ -1889,15 +1891,14 @@ def split_tokens(dataset,
         tf.int32)
     padding = num_segments * length - tf.size(tokens)
     tokens = tf.pad(tokens, [[0, padding]])
-    return tf.reshape(tokens, [-1, length])
+    return {feature_key: tf.reshape(tokens, [-1, length]), passthrough_key: x[passthrough_key]}
 
   def _strip_padding(x):
-    return {feature_key: tf.boolean_mask(x, tf.cast(x, tf.bool))}
+    return {feature_key: tf.boolean_mask(x[feature_key], tf.cast(x[feature_key], tf.bool)), passthrough_key: x[passthrough_key]}
 
   # Filter empty examples.
   dataset = dataset.filter(lambda x: tf.not_equal(tf.size(x[feature_key]), 0))
   dataset = dataset.map(_split_tokens, num_parallel_calls=AUTOTUNE)
-  dataset = dataset.unbatch()
   return dataset.map(_strip_padding, num_parallel_calls=AUTOTUNE)
 
 
@@ -1995,6 +1996,7 @@ def denoise(features,
     A preprocessed example.
   """
   tokens = features['targets']
+  q_tokens = features['question']
   vocabulary = output_features['targets'].vocabulary
   if ('inputs' in output_features and
       vocabulary != output_features['inputs'].vocabulary):
@@ -2007,7 +2009,8 @@ def denoise(features,
     targets = targets_fn(tokens, noise_mask, vocabulary)
   else:
     targets = tokens
-  return {'inputs': inputs, 'targets': targets}
+
+  return {'inputs': tf.concat([q_tokens, inputs], axis=-1), 'targets': tf.concat([q_tokens, targets], axis=-1)}
 
 
 def trivia_qa_truncate_inputs(dataset, output_features, sequence_length):
